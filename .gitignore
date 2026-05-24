@@ -4,3 +4,5 @@ inventory.db
 .env
 venv/
 logs/
+*.log
+static/photos/

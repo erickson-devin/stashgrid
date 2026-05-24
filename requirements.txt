@@ -1,0 +1,19 @@
+# StashGrid - Python Dependencies
+# Install with: pip install -r requirements.txt
+#
+# Core web framework
+flask>=3.0.0
+
+# HTTP client (used in app.py and scanner.py for barcode lookups)
+requests>=2.31.0
+
+# Image processing (photo upload/resize in app.py)
+Pillow>=10.0.0
+
+# HTTPS / self-signed cert support (optional but required for camera on mobile)
+# Allows app.run(ssl_context='adhoc')
+pyOpenSSL>=24.0.0
+
+# Linux / Raspberry Pi only — raw HID input for the USB barcode scanner (scanner.py)
+# Do NOT install on Windows/macOS. Comment this out if deploying app.py only.
+evdev>=1.6.0; sys_platform == "linux"
