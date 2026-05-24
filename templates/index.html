@@ -1,0 +1,370 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<!-- html5-qrcode: live camera scanning on iOS Safari + Android Chrome -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<div class="status-bar">
+    <div class="status-dot"></div>
+    <span id="sync-text">LIVE SYNC: ACTIVE</span>
+    <span style="color:var(--border)">|</span>
+    <span>ROOMS CONFIG: <span style="color:var(--cyan)">ONLINE</span></span>
+    {% if room_info and shelves %}
+    <button class="btn-action btn-scan-start"
+        style="margin-left:auto; font-size:11px; padding:4px 12px; letter-spacing:.08em;"
+        data-room-id="{{ room_info[0] }}"
+        onclick="openScanModal(this.dataset.roomId)">&#128247; SCAN TO SHELF</button>
+    {% endif %}
+</div>
+
+<div class="room-controls">
+    <div class="corner corner-tl"></div>
+    <div class="corner corner-tr"></div>
+    <div class="corner corner-bl"></div>
+    <div class="corner corner-br"></div>
+
+    <div class="control-block">
+        <h3>Active Matrix Target</h3>
+        <form method="get" action="/" class="room-selector-form">
+            <select name="room_id" onchange="this.form.submit()">
+                {% if not rooms %}
+                <option value="">[ NO ROOMS DETECTED ]</option>
+                {% endif %}
+                {% for r in rooms %}
+                <option value="{{ r[0] }}" {% if r[0]==selected_room_id %}selected{% endif %}>
+                    {{ r[1] }} {% if r[2] == 1 %}(DEFAULT){% endif %}
+                </option>
+                {% endfor %}
+            </select>
+        </form>
+
+        {% if room_info %}
+        <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+            <span style="font-size: 11px; color: var(--dim)">SELECTED: <strong>{{ room_info[1] }}</strong></span>
+            {% if room_info[2] != 1 %}
+            <form method="post" action="/api/rooms/{{ room_info[0] }}/set-default" style="display:inline;">
+                <button type="submit" class="btn-action btn-secondary" style="font-size:10px; padding:2px 6px;">SET AS
+                    DEFAULT</button>
+            </form>
+            {% endif %}
+            <button class="btn-action btn-secondary"
+                style="font-size:10px; padding:2px 8px; border-color:var(--magenta); color:var(--magenta);"
+                data-room-id="{{ room_info[0] }}" data-room-name="{{ room_info[1] }}"
+                onclick="openEditRoom(this.dataset.roomId, this.dataset.roomName)">✎ EDIT ROOM</button>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="control-block">
+        <h3>Construct New Storage Structure</h3>
+        <form method="post" action="/api/rooms" class="new-room-form">
+            <input type="text" name="name" placeholder="Room Name (e.g., Garage)" required>
+            <input type="number" name="shelf_count" placeholder="Shelves" value="4" min="1" max="20"
+                title="Number of Shelves">
+            <button type="submit" class="btn-action">BUILD</button>
+        </form>
+    </div>
+</div>
+
+<div class="search-section">
+    <input type="text" id="search-box" class="search-input-field"
+        placeholder="SCAN BARCODE OR QUERY MATCHING ATTRIBUTES OVER ACTIVE ZONE..." value="{{ q }}"
+        oninput="syncState()">
+</div>
+
+<div id="canvas-injection-point">
+    {% include '_item_cards.html' %}
+</div>
+
+<div id="zoom-overlay" class="zoom-overlay">
+    <div class="zoom-content">
+        <div class="zoom-header">
+            <div class="zoom-title">SHELF FOCUS // TRACK #<span id="zoom-shelf-num">0</span></div>
+            <input type="hidden" id="zoom-shelf-id" value="">
+            <button class="close-zoom" onclick="closeShelfZoom()">DISENGAGE VIEW ✕</button>
+        </div>
+        <div id="zoom-cards-container">
+        </div>
+    </div>
+</div>
+
+<!-- Edit Room Modal -->
+<div id="edit-room-overlay" class="edit-room-overlay">
+    <div class="edit-room-content">
+        <button class="close-edit-room" onclick="closeEditRoom()">&#10005; CLOSE</button>
+        <h3>&#11041; MODIFY STORAGE STRUCTURE // <span id="edit-room-name-display">&mdash;</span></h3>
+
+        <!-- Add Shelves Section -->
+        <div class="edit-room-section">
+            <label>Expand Capacity: Add Shelves</label>
+            <form id="add-shelves-form" method="post" action="" class="add-shelves-row">
+                <input type="number" name="add_count" placeholder="+Qty" value="1" min="1" max="20"
+                    title="Number of shelves to add">
+                <button type="submit" class="btn-action">ADD SHELVES</button>
+            </form>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="edit-room-section">
+            <label>&#9888; Danger Zone</label>
+            <form id="delete-room-form" method="post" action=""
+                onsubmit="return confirm('CONFIRM: Permanently delete this room and ALL its inventory data?')">
+                <button type="submit" class="btn-danger">&#10005; DELETE THIS ROOM</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Camera Scan Modal -->
+<div id="scan-overlay" class="scan-modal-overlay">
+    <div class="scan-modal-content">
+        <button class="close-scan-modal" onclick="closeScanModal()">&#10005; CLOSE</button>
+        <h3>&#9635; INTAKE SCAN // <span style="color:#00ff88">CAMERA MODE</span></h3>
+
+        <!-- Shelf selector -->
+        <div class="scan-section">
+            <label class="scan-label">Target Shelf</label>
+            <select id="scan-shelf-select">
+                {% if shelves %}
+                {% for shelf in shelves %}
+                <option value="{{ shelf[0] }}">LEVEL {{ shelf[1] }}</option>
+                {% endfor %}
+                {% else %}
+                <option value="">[ NO SHELVES AVAILABLE ]</option>
+                {% endif %}
+            </select>
+        </div>
+
+        <!-- Camera viewfinder -->
+        <div class="cam-viewfinder" id="cam-viewfinder-wrap">
+            <div class="cam-viewfinder-idle" id="cam-idle-msg">[ CAMERA OFFLINE ]<br>Tap START SCAN to activate</div>
+            <div id="cam-reader"></div>
+        </div>
+
+        <!-- Status strip -->
+        <div id="scan-status" class="scan-status-bar">READY &mdash; SELECT A SHELF AND TAP START SCAN</div>
+
+        <!-- Last scan result -->
+        <div id="scan-result" class="scan-result-block" style="display:none;">
+            <div id="scan-result-badge" class="scan-result-badge">&#9635; ITEM LOGGED</div>
+            <div id="scan-result-name" class="scan-result-name"></div>
+            <div id="scan-result-qty" class="scan-result-qty"></div>
+            <button class="btn-action" style="font-size:11px; padding:5px 12px;"
+                onclick="triggerScanPhoto()">&#128247; CAPTURE ITEM PHOTO</button>
+        </div>
+
+        <!-- Scan controls -->
+        <div class="scan-controls">
+            <button id="btn-start-scan" class="btn-action btn-scan-start"
+                onclick="startScan()">&#9654; START SCAN</button>
+            <button id="btn-stop-scan" class="btn-action btn-secondary"
+                style="display:none;" onclick="stopScan()">&#9632; STOP</button>
+            <!-- Fallback: shown automatically when live camera is unavailable (HTTP) -->
+            <button id="btn-file-scan" class="btn-action btn-scan-start"
+                style="display:none;" onclick="triggerBarcodeScan()">&#128247; SCAN BARCODE PHOTO</button>
+        </div>
+
+        <!-- Hidden file inputs -->
+        <!-- Barcode photo scanning fallback (works over plain HTTP) -->
+        <input type="file" id="barcode-scan-file-input" accept="image/*" capture="environment" style="display:none;">
+        <!-- Photo uploads for item thumbnails -->
+        <input type="file" id="scan-photo-input" accept="image/*" capture="environment" style="display:none;">
+        <input type="file" id="item-photo-input" accept="image/*" capture="environment" style="display:none;">
+    </div>
+</div>
+
+<script>
+    // ── Edit Room Modal ──
+    window.openEditRoom = function(roomId, roomName) {
+        document.getElementById('edit-room-name-display').textContent = roomName;
+        document.getElementById('add-shelves-form').action = '/api/rooms/' + roomId + '/add-shelves';
+        document.getElementById('delete-room-form').action = '/api/rooms/' + roomId + '/delete';
+        document.getElementById('edit-room-overlay').classList.add('active');
+    };
+
+    window.closeEditRoom = function() {
+        document.getElementById('edit-room-overlay').classList.remove('active');
+    };
+
+    document.getElementById('edit-room-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeEditRoom();
+    });
+
+    // ── Camera Scan Modal ──
+    let _qrScanner = null;
+    let _scanCooldown = false;
+    let _lastScannedItemId = null;
+    let _scanRoomId = null;
+
+    window.openScanModal = function(roomId) {
+        _scanRoomId = roomId;
+        document.getElementById('scan-result').style.display = 'none';
+        document.getElementById('scan-status').textContent = 'READY \u2014 SELECT A SHELF AND TAP START SCAN';
+        document.getElementById('btn-start-scan').style.display = 'inline-block';
+        document.getElementById('btn-stop-scan').style.display = 'none';
+        document.getElementById('cam-idle-msg').style.display = 'block';
+        document.getElementById('scan-overlay').classList.add('active');
+    };
+
+    window.closeScanModal = async function() {
+        await _stopQr();
+        document.getElementById('scan-overlay').classList.remove('active');
+    };
+
+    window.startScan = async function() {
+        if (_qrScanner) return;
+        document.getElementById('cam-idle-msg').style.display = 'none';
+        _qrScanner = new Html5Qrcode('cam-reader');
+        try {
+            await _qrScanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 220, height: 180 } },
+                _onBarcode,
+                function() {} // silent per-frame misses
+            );
+            document.getElementById('btn-start-scan').style.display = 'none';
+            document.getElementById('btn-stop-scan').style.display = 'inline-block';
+            _setScanStatus('SCANNING \u2014 AIM CAMERA AT BARCODE...');
+        } catch(err) {
+            // Live camera unavailable — most likely HTTP instead of HTTPS.
+            // Switch to photo-based barcode scanning which works over any protocol.
+            _qrScanner = null;
+            document.getElementById('cam-reader').innerHTML = '';
+            document.getElementById('cam-idle-msg').style.display = 'block';
+            _activateFileFallback();
+        }
+    };
+
+    window.stopScan = async function() {
+        await _stopQr();
+        _setScanStatus('SCAN STOPPED');
+    };
+
+    async function _stopQr() {
+        if (!_qrScanner) return;
+        try {
+            if (_qrScanner.isScanning) await _qrScanner.stop();
+            _qrScanner.clear();
+        } catch(e) {}
+        _qrScanner = null;
+        document.getElementById('cam-reader').innerHTML = '';
+        document.getElementById('cam-idle-msg').style.display = 'block';
+        document.getElementById('btn-start-scan').style.display = 'inline-block';
+        document.getElementById('btn-stop-scan').style.display = 'none';
+    }
+
+    async function _onBarcode(barcode) {
+        if (_scanCooldown) return;
+        const shelfId = document.getElementById('scan-shelf-select').value;
+        if (!shelfId) { _setScanStatus('\u26a0 SELECT A TARGET SHELF FIRST'); return; }
+
+        _scanCooldown = true;
+        _setScanStatus('BARCODE ACQUIRED: ' + barcode);
+
+        try {
+            const fd = new FormData();
+            fd.append('barcode', barcode);
+            fd.append('shelf_id', shelfId);
+            fd.append('room_id', _scanRoomId);
+            const resp = await fetch('/api/scan', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.error) throw new Error(data.error);
+
+            _lastScannedItemId = data.id;
+            document.getElementById('scan-result-badge').textContent = data.is_new ? '\u2b21 NEW ITEM LOGGED' : '\u2b21 QUANTITY UPDATED';
+            document.getElementById('scan-result-name').textContent = data.name;
+            document.getElementById('scan-result-qty').textContent = 'QTY ON SHELF: ' + data.quantity;
+            document.getElementById('scan-result').style.display = 'block';
+            _setScanStatus('\u2713 LOGGED // READY FOR NEXT SCAN...');
+        } catch(e) {
+            _setScanStatus('\u26a0 ERROR: ' + e.message);
+        }
+
+        setTimeout(function() { _scanCooldown = false; }, 2000);
+    }
+
+    function _setScanStatus(msg) {
+        document.getElementById('scan-status').textContent = msg;
+    }
+
+    // Photo-scan fallback: decode barcode from a captured image (works over HTTP)
+    function _activateFileFallback() {
+        document.getElementById('btn-start-scan').style.display = 'none';
+        document.getElementById('btn-stop-scan').style.display = 'none';
+        document.getElementById('btn-file-scan').style.display = 'flex';
+        _setScanStatus('\u26a0 LIVE SCAN UNAVAILABLE (HTTP only) \u2014 Use photo scan instead, or switch to HTTPS');
+    }
+
+    window.triggerBarcodeScan = function() {
+        document.getElementById('barcode-scan-file-input').click();
+    };
+
+    document.getElementById('barcode-scan-file-input').addEventListener('change', async function() {
+        if (!this.files[0]) return;
+        _setScanStatus('DECODING BARCODE FROM PHOTO...');
+        const tempScanner = new Html5Qrcode('cam-reader');
+        try {
+            const barcode = await tempScanner.scanFile(this.files[0], /* showImage= */ false);
+            tempScanner.clear();
+            document.getElementById('cam-reader').innerHTML = '';
+            await _onBarcode(barcode);
+        } catch(e) {
+            tempScanner.clear();
+            document.getElementById('cam-reader').innerHTML = '';
+            _setScanStatus('\u26a0 NO BARCODE FOUND \u2014 Try again, ensure barcode is in focus');
+        }
+        this.value = '';
+    });
+
+    // Photo capture helpers
+    window.triggerScanPhoto = function() {
+        if (!_lastScannedItemId) return;
+        document.getElementById('scan-photo-input').click();
+    };
+
+    window.triggerItemPhoto = function(itemId) {
+        _lastScannedItemId = itemId;
+        document.getElementById('item-photo-input').click();
+    };
+
+    async function _uploadPhoto(file, itemId) {
+        const fd = new FormData();
+        fd.append('photo', file);
+        const resp = await fetch('/api/items/' + itemId + '/photo', { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        // Live-update any matching thumb already in DOM
+        const ts = '?t=' + Date.now();
+        document.querySelectorAll('.micro-thumb[data-item-id="' + itemId + '"] img').forEach(function(img) { img.src = data.photo_url + ts; });
+        document.querySelectorAll('.expanded-thumb[data-item-id="' + itemId + '"] img').forEach(function(img) { img.src = data.photo_url + ts; });
+        return data;
+    }
+
+    document.getElementById('scan-photo-input').addEventListener('change', async function() {
+        if (!this.files[0] || !_lastScannedItemId) return;
+        _setScanStatus('UPLOADING PHOTO...');
+        try {
+            await _uploadPhoto(this.files[0], _lastScannedItemId);
+            _setScanStatus('\u2713 PHOTO SAVED TO ASSET');
+        } catch(e) {
+            _setScanStatus('\u26a0 PHOTO ERROR: ' + e.message);
+        }
+        this.value = '';
+    });
+
+    document.getElementById('item-photo-input').addEventListener('change', async function() {
+        if (!this.files[0] || !_lastScannedItemId) return;
+        try {
+            await _uploadPhoto(this.files[0], _lastScannedItemId);
+        } catch(e) {
+            alert('Photo upload failed: ' + e.message);
+        }
+        this.value = '';
+    });
+
+    document.getElementById('scan-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeScanModal();
+    });
+</script>
+
+{% endblock %}

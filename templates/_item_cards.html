@@ -1,0 +1,124 @@
+{% if room_info %}
+
+<div class="shelf-canvas">
+    {% for shelf in shelves %}
+    <div class="shelf-track" onclick="zoomShelf('{{ shelf[0] }}', '{{ shelf[1] }}')">
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+
+        <div class="shelf-label">
+            <span>TRACK LINE //</span>
+            <span class="num">LEVEL {{ shelf[1] }}</span>
+        </div>
+
+        <div class="shelf-items-row">
+            {% for item in items %}
+            {% if item[9] == shelf[0] %}
+            <div class="item-micro-chip">
+                <div class="micro-thumb" data-item-id="{{ item[0] }}">
+                    {% if item[10] %}
+                    <img src="{{ item[10] }}" alt="{{ item[2] or 'item' }}" loading="lazy">
+                    {% else %}
+                    <div class="micro-thumb-fallback">{{ (item[2] or '?')[0]|upper }}</div>
+                    {% endif %}
+                </div>
+                <span class="micro-qty">x{{ item[5] }}</span>
+                <span class="micro-name">{{ item[2] or '[ UNNAMED ]' }}</span>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div id="hidden-vault" style="display: none;">
+    {% for shelf in shelves %}
+    <div class="hidden-cards-vault" data-shelf-id="{{ shelf[0] }}">
+        {% for item in items %}
+        {% if item[9] == shelf[0] %}
+        <div class="item-card-expanded">
+            <!-- Card header: thumb + name + barcode -->
+            <div style="display:flex; gap:12px; align-items:flex-start; margin-bottom:10px;">
+                <div class="expanded-thumb" data-item-id="{{ item[0] }}">
+                    {% if item[10] %}
+                    <img src="{{ item[10] }}" alt="{{ item[2] or 'item' }}" loading="lazy">
+                    {% else %}
+                    <div class="expanded-thumb-fallback">{{ (item[2] or '?')[0]|upper }}</div>
+                    {% endif %}
+                </div>
+                <div style="flex:1; min-width:0;">
+                    <div style="font-family:'Orbitron'; font-weight:700; font-size:15px; color:var(--item-name-color); word-break:break-word;">
+                        {{ item[2] or '[ UNNAMED ASSET ]' }}
+                    </div>
+                    <div style="font-family:'Share Tech Mono'; font-size:12px; color:var(--cyan); margin:2px 0 0 0; letter-spacing:1px;">
+                        {{ item[1] }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="spec-line"><span>POOL QUANTITY:</span> <strong style="color:var(--yellow)">{{ item[5] }}
+                    units</strong></div>
+            <div class="spec-line"><span>SPATIAL LOCATION:</span> <span>{{ item[3] }} // LVL {{ item[4] }}</span></div>
+            <div class="spec-line" style="border-bottom:none; margin-bottom:0;"><span>LAST LOG DATE:</span> <span
+                    style="font-size:10px; color:var(--dim)">{{ item[7] }}</span></div>
+
+            {% if item[6] %}
+            <div
+                style="margin-top:8px; padding:6px; background:rgba(0,245,255,0.03); border-left:2px solid var(--cyan); font-size:11px; color:var(--text)">
+                <span style="color:var(--dim); font-size:9px; display:block; font-family:'Orbitron'">DATA_NOTES:</span>
+                {{ item[6] }}
+            </div>
+            {% endif %}
+
+            <div class="action-trigger-zone"
+                style="margin-top:12px; border-top:1px dashed var(--border); padding-top:10px;">
+                <button class="btn-action btn-secondary" style="font-size:10px; padding:4px 8px;"
+                    onclick="toggleExpandEdit(this, '{{ item[0] }}')">MANIPULATE METADATA</button>
+                <button class="btn-action btn-secondary" style="font-size:10px; padding:4px 8px; border-color:#00ff88; color:#00ff88;"
+                    onclick="window.triggerItemPhoto('{{ item[0] }}')">&#128247; UPDATE PHOTO</button>
+
+                <form method="post" action="/edit/{{ item[0] }}" class="edit-form"
+                    style="margin-top:8px;">
+                    <input type="hidden" name="room_id" value="{{ room_info[0] }}">
+                    <input type="text" name="name" value="{{ item[2] or '' }}" placeholder="Update Name..."
+                        style="width:100%; margin-bottom:4px;">
+                    <textarea name="notes" placeholder="Update descriptive payload data..." rows="2"
+                        style="width:100%; font-family:inherit; font-size:11px;">{{ item[6] or '' }}</textarea>
+                    <button type="submit" class="btn-action" style="width:100%; margin-top:4px;">COMMIT CHANGES</button>
+                </form>
+
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                    <form method="post" action="/remove/{{ item[0] }}" style="flex:1;"
+                        onsubmit="return confirm('Decrement asset pool by 1?');">
+                        <input type="hidden" name="room_id" value="{{ room_info[0] }}">
+                        <input type="hidden" name="amount" value="1">
+                        <button type="submit"
+                            style="width:100%; border: 1px solid var(--yellow); color:var(--yellow); background:transparent; cursor:pointer; padding:6px 0; font-family:inherit; font-size:11px;">DECREMENT
+                            1</button>
+                    </form>
+                    <form method="post" action="/delete/{{ item[0] }}" style="flex:1;"
+                        onsubmit="return confirm('Purge item entry completely?');">
+                        <input type="hidden" name="room_id" value="{{ room_info[0] }}">
+                        <button type="submit"
+                            style="width:100%; border: 1px solid var(--magenta); color:var(--magenta); background:transparent; cursor:pointer; padding:6px 0; font-family:inherit; font-size:11px;">PURGE
+                            ENTRY</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<div class="empty-canvas" style="text-align:center; padding:40px; color:var(--dim); font-family:'Share Tech Mono';">
+    [ SYSTEM LAYOUT OFFLINE ] <br>
+    <span style="font-size:11px; color:var(--magenta);">No spatial structures configured yet. Build a frame using the
+        controls module.</span>
+</div>
+{% endif %}

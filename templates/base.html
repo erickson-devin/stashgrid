@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Storage Inventory // SPATIAL HUD</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap"
+        rel="stylesheet">
+    <style>
+        :root,
+        [data-theme="dark"] {
+            --cyan: #00f5ff;
+            --magenta: #ff00c8;
+            --yellow: #f5e642;
+            --bg0: #05070f;
+            --bg1: #0b0f1e;
+            --bg2: #101728;
+            --border: #1a2a4a;
+            --text: #c8d8f0;
+            --dim: #5a7090;
+            --grid-line: rgba(0, 245, 255, .04);
+            --scanline: rgba(0, 0, 0, .15);
+            --item-name-color: #fff;
+            --toggle-bg: #0b0f1e;
+            --toggle-border: #1a2a4a;
+        }
+
+        [data-theme="light"] {
+            --cyan: #0077aa;
+            --magenta: #cc0077;
+            --yellow: #b07800;
+            --bg0: #eef2f7;
+            --bg1: #f8fafc;
+            --bg2: #e4eaf3;
+            --border: #c0cfe6;
+            --text: #1a2a45;
+            --dim: #5a7090;
+            --grid-line: rgba(0, 100, 180, .05);
+            --scanline: rgba(0, 0, 0, .03);
+            --item-name-color: #0a1628;
+            --toggle-bg: #f8fafc;
+            --toggle-border: #c0cfe6;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            transition: background-color .25s, color .25s, border-color .25s;
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: var(--bg0);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, var(--scanline) 2px, var(--scanline) 4px);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .container {
+            position: relative;
+            z-index: 2;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 24px 20px 60px;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            position: relative;
+        }
+
+        header::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 40%;
+            height: 1px;
+            background: linear-gradient(90deg, var(--cyan), transparent);
+            box-shadow: 0 0 8px var(--cyan);
+        }
+
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            background: linear-gradient(90deg, var(--cyan), var(--magenta));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .sys-tag {
+            font-size: 11px;
+            letter-spacing: .2em;
+            color: var(--dim);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 11px;
+            letter-spacing: .1em;
+            color: var(--dim);
+            margin-bottom: 24px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff88;
+            box-shadow: 0 0 8px #00ff88;
+        }
+
+        /* Room Builder Panels */
+        .room-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            background: var(--bg1);
+            border: 1px solid var(--border);
+            padding: 16px;
+            margin-bottom: 24px;
+            position: relative;
+        }
+
+        /* Responsive: stack panels on mobile */
+        @media (max-width: 600px) {
+            .room-controls {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .control-block h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            color: var(--cyan);
+            letter-spacing: .1em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .room-selector-form {
+            display: flex;
+            gap: 8px;
+        }
+
+        select,
+        input,
+        textarea,
+        button {
+            background: var(--bg2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 13px;
+            outline: none;
+        }
+
+        textarea {
+            resize: vertical;
+        }
+
+        select:focus,
+        input:focus,
+        textarea:focus {
+            border-color: var(--cyan);
+        }
+
+        .spec-line {
+            font-size: 12px;
+            padding: 5px 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--dim);
+        }
+
+        .spec-line strong,
+        .spec-line span:last-child {
+            color: var(--text);
+        }
+
+        select {
+            flex-grow: 1;
+            cursor: pointer;
+            color: var(--cyan);
+        }
+
+        .btn-action {
+            background: transparent;
+            border: 1px solid var(--cyan);
+            color: var(--cyan);
+            cursor: pointer;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        .btn-action:hover {
+            background: rgba(0, 245, 255, .1);
+            box-shadow: 0 0 10px rgba(0, 245, 255, .2);
+        }
+
+        .btn-secondary {
+            border-color: var(--dim);
+            color: var(--dim);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(90, 112, 144, .1);
+        }
+
+        /* Spatial Canvas Structure */
+        .shelf-canvas {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            margin-top: 20px;
+        }
+
+        .shelf-track {
+            background: var(--bg1);
+            border: 1px solid var(--border);
+            border-top: 3px solid var(--cyan);
+            padding: 14px 16px;
+            position: relative;
+            cursor: pointer;
+            transition: transform .2s, border-color .2s, box-shadow .2s;
+        }
+
+        .shelf-track:hover {
+            border-color: var(--cyan);
+            box-shadow: 0 0 15px rgba(0, 245, 255, .1);
+            transform: translateY(-2px);
+        }
+
+        .shelf-label {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            letter-spacing: .15em;
+            color: var(--dim);
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .shelf-label span.num {
+            color: var(--cyan);
+            font-weight: bold;
+        }
+
+        /* Row of Micro-chips inside a visual shelf */
+        .shelf-items-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            min-height: 40px;
+            align-items: center;
+        }
+
+        .item-micro-chip {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-left: 2px solid var(--magenta);
+            padding: 6px 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        .micro-qty {
+            color: var(--yellow);
+            font-weight: bold;
+        }
+
+        .micro-name {
+            color: var(--item-name-color);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 120px;
+            white-space: nowrap;
+        }
+
+        /* Modal / Zoom Overlay System */
+        .zoom-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(3, 5, 12, .9);
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(4px);
+        }
+
+        .zoom-overlay.active {
+            display: flex;
+        }
+
+        .zoom-content {
+            background: var(--bg1);
+            border: 2px solid var(--cyan);
+            width: 100%;
+            max-width: 750px;
+            max-height: 85vh;
+            overflow-y: auto;
+            position: relative;
+            padding: 24px;
+            box-shadow: 0 0 40px rgba(0, 245, 255, .25);
+        }
+
+        .zoom-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+
+        .zoom-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 18px;
+            color: var(--cyan);
+            text-transform: uppercase;
+            letter-spacing: .1em;
+        }
+
+        .close-zoom {
+            background: transparent;
+            border: 1px solid var(--magenta);
+            color: var(--magenta);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 4px 10px;
+        }
+
+        .close-zoom:hover {
+            background: rgba(255, 0, 200, .1);
+        }
+
+        /* Expanded Item Cards */
+        .item-card-expanded {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--cyan);
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .expanded-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin: 12px 0;
+        }
+
+        .field-label {
+            font-size: 9px;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            color: var(--dim);
+        }
+
+        .field-value {
+            font-size: 13px;
+            margin-top: 2px;
+        }
+
+        .field-value.qty {
+            color: var(--yellow);
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .field-value.barcode {
+            color: var(--magenta);
+        }
+
+        .edit-form {
+            display: none;
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px dashed var(--border);
+        }
+
+        .edit-form.open {
+            display: block;
+        }
+
+        .edit-form input {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+
+        /* Utilities */
+        .corner {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+        }
+
+        .corner-tl {
+            top: -1px;
+            left: -1px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+        }
+
+        .corner-tr {
+            top: -1px;
+            right: -1px;
+            border-top: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+        }
+
+        .corner-bl {
+            bottom: -1px;
+            left: -1px;
+            border-bottom: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+        }
+
+        .corner-br {
+            bottom: -1px;
+            right: -1px;
+            border-bottom: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+        }
+
+        #theme-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--bg1);
+            color: var(--cyan);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .empty-canvas {
+            text-align: center;
+            padding: 40px;
+            color: var(--dim);
+            border: 1px dashed var(--border);
+            text-transform: uppercase;
+            font-size: 13px;
+        }
+
+        .search-section {
+            margin-bottom: 20px;
+        }
+
+        .search-input-field {
+            width: 100%;
+            padding: 12px;
+            color: var(--cyan);
+            background: var(--bg1);
+            border: 1px solid var(--border);
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        /* New-room form: responsive flex */
+        .new-room-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .new-room-form input[name="name"] {
+            flex: 1 1 160px;
+            min-width: 0;
+        }
+
+        .new-room-form input[name="shelf_count"] {
+            width: 70px;
+            flex: 0 0 70px;
+        }
+
+        .new-room-form .btn-action {
+            flex: 0 0 auto;
+        }
+
+        /* Edit Room Modal */
+        .edit-room-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(3, 5, 12, .92);
+            z-index: 300;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(6px);
+        }
+
+        .edit-room-overlay.active {
+            display: flex;
+        }
+
+        .edit-room-content {
+            background: var(--bg1);
+            border: 2px solid var(--magenta);
+            width: 100%;
+            max-width: 460px;
+            position: relative;
+            padding: 24px;
+            box-shadow: 0 0 40px rgba(255, 0, 200, .25);
+        }
+
+        .edit-room-content h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 13px;
+            color: var(--magenta);
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .edit-room-section {
+            margin-bottom: 18px;
+        }
+
+        .edit-room-section label {
+            display: block;
+            font-size: 10px;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 6px;
+        }
+
+        .add-shelves-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .add-shelves-row input {
+            width: 80px;
+            flex: 0 0 80px;
+        }
+
+        .btn-danger {
+            background: transparent;
+            border: 1px solid #ff3860;
+            color: #ff3860;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-weight: bold;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 13px;
+            padding: 8px 12px;
+            width: 100%;
+        }
+
+        .btn-danger:hover {
+            background: rgba(255, 56, 96, .12);
+            box-shadow: 0 0 10px rgba(255, 56, 96, .25);
+        }
+
+        .close-edit-room {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: transparent;
+            border: 1px solid var(--dim);
+            color: var(--dim);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 3px 8px;
+        }
+
+        .close-edit-room:hover {
+            border-color: var(--magenta);
+            color: var(--magenta);
+        }
+
+        /* ── Camera Scan Modal ── */
+        .scan-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(3, 5, 12, .93);
+            z-index: 400;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            backdrop-filter: blur(6px);
+        }
+
+        .scan-modal-overlay.active {
+            display: flex;
+        }
+
+        .scan-modal-content {
+            background: var(--bg1);
+            border: 2px solid #00ff88;
+            width: 100%;
+            max-width: 480px;
+            max-height: 92vh;
+            overflow-y: auto;
+            position: relative;
+            padding: 20px 18px;
+            box-shadow: 0 0 50px rgba(0, 255, 136, .2);
+        }
+
+        .scan-modal-content h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            color: #00ff88;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+            padding-right: 32px;
+        }
+
+        .close-scan-modal {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: transparent;
+            border: 1px solid var(--dim);
+            color: var(--dim);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 3px 8px;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .close-scan-modal:hover {
+            border-color: #00ff88;
+            color: #00ff88;
+        }
+
+        .scan-section {
+            margin-bottom: 12px;
+        }
+
+        .scan-label {
+            display: block;
+            font-size: 10px;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 5px;
+        }
+
+        .cam-viewfinder {
+            position: relative;
+            background: #000;
+            width: 100%;
+            min-height: 230px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(0, 255, 136, .3);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .cam-viewfinder-idle {
+            color: var(--dim);
+            font-size: 11px;
+            letter-spacing: .1em;
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* Suppress html5-qrcode injected UI that conflicts with our own */
+        #cam-reader {
+            width: 100% !important;
+            border: none !important;
+        }
+
+        #cam-reader video {
+            width: 100% !important;
+            height: auto !important;
+            display: block;
+        }
+
+        #cam-reader img { display: none !important; }
+        #cam-reader__header_message { display: none !important; }
+        #cam-reader__status_span { display: none !important; }
+        #cam-reader__dashboard_section_swaplink { display: none !important; }
+
+        .scan-status-bar {
+            font-size: 11px;
+            letter-spacing: .07em;
+            color: #00ff88;
+            background: rgba(0, 255, 136, .05);
+            border: 1px solid rgba(0, 255, 136, .2);
+            padding: 7px 10px;
+            margin-bottom: 10px;
+            min-height: 32px;
+            font-family: 'Share Tech Mono', monospace;
+            word-break: break-all;
+        }
+
+        .scan-result-block {
+            background: rgba(0, 255, 136, .04);
+            border: 1px solid rgba(0, 255, 136, .25);
+            border-left: 3px solid #00ff88;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+        }
+
+        .scan-result-badge {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 9px;
+            letter-spacing: .2em;
+            text-transform: uppercase;
+            color: #00ff88;
+            margin-bottom: 4px;
+        }
+
+        .scan-result-name {
+            font-size: 14px;
+            color: var(--item-name-color);
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+
+        .scan-result-qty {
+            font-size: 11px;
+            color: var(--yellow);
+            margin-bottom: 8px;
+        }
+
+        .scan-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .btn-scan-start {
+            border-color: #00ff88 !important;
+            color: #00ff88 !important;
+            flex: 1;
+        }
+
+        .btn-scan-start:hover {
+            background: rgba(0, 255, 136, .1) !important;
+            box-shadow: 0 0 12px rgba(0, 255, 136, .2) !important;
+        }
+
+        /* ── Item Thumbnails ── */
+        .micro-thumb {
+            width: 34px;
+            height: 34px;
+            flex-shrink: 0;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .micro-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .micro-thumb-fallback {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, var(--bg2), rgba(0, 245, 255, .08));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--dim);
+        }
+
+        .expanded-thumb {
+            width: 74px;
+            height: 74px;
+            flex-shrink: 0;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .expanded-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .expanded-thumb-fallback {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, var(--bg2), rgba(0, 245, 255, .07));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--dim);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>StashGrid // Spatial HUD</h1>
+                <div class="sys-tag">COM-LINK ACTIVE // NODE DELTA</div>
+            </div>
+        </header>
+        <button id="theme-toggle" onclick="toggleTheme()">☀</button>
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+        let currentHash = null;
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room_id') || '';
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('cyberTheme', next);
+        }
+
+        if (localStorage.getItem('cyberTheme')) {
+            document.documentElement.setAttribute('data-theme', localStorage.getItem('cyberTheme'));
+        }
+
+        // Real-time Live Sync Polling Engine
+        async function syncState() {
+            try {
+                const q = document.getElementById('search-box')?.value || '';
+                const response = await fetch(`/api/inventory-hash?room_id=${roomId}&q=${encodeURIComponent(q)}`);
+                const data = await response.json();
+
+                if (currentHash && data.hash !== currentHash) {
+                    document.getElementById('sync-text').innerText = "SYNCING CHANGES...";
+                    const itemsResponse = await fetch(`/api/items?room_id=${roomId}&q=${encodeURIComponent(q)}`);
+                    const itemsData = await itemsResponse.json();
+
+                    // Preserve active shelf zoom focus while content live-reloads
+                    const activeZoomShelfId = document.getElementById('zoom-overlay').classList.contains('active') ? document.getElementById('zoom-shelf-id').value : null;
+
+                    document.getElementById('canvas-injection-point').innerHTML = itemsData.html;
+
+                    if (activeZoomShelfId) {
+                        reEstablishZoom(activeZoomShelfId);
+                    }
+                    document.getElementById('sync-text').innerText = "LIVE SYNC: ACTIVE";
+                }
+                currentHash = data.hash;
+            } catch (e) {
+                document.getElementById('sync-text').innerText = "COM-LINK ERROR";
+            }
+        }
+
+        // Trigger initialization
+        fetch(`/api/inventory-hash?room_id=${roomId}`).then(r => r.json()).then(d => { currentHash = d.hash; });
+        setInterval(syncState, 3000);
+
+        // Structural UI interactions
+        window.zoomShelf = function (shelfId, shelfNum) {
+            document.getElementById('zoom-shelf-num').innerText = shelfNum;
+            document.getElementById('zoom-shelf-id').value = shelfId;
+
+            // Select all expanded detailed cards belonging to this shelf id and copy them into view
+            const sourceCards = document.querySelectorAll(`.hidden-cards-vault[data-shelf-id="${shelfId}"] .item-card-expanded`);
+            const container = document.getElementById('zoom-cards-container');
+            container.innerHTML = '';
+
+            if (sourceCards.length === 0) {
+                container.innerHTML = '<div style="color:var(--dim); text-align:center; padding:20px;">NO ITEMS CURRENTLY ON THIS SHELF.</div>';
+            } else {
+                sourceCards.forEach(card => {
+                    container.appendChild(card.cloneNode(true));
+                });
+            }
+            document.getElementById('zoom-overlay').classList.add('active');
+        };
+
+        window.closeShelfZoom = function () {
+            document.getElementById('zoom-overlay').classList.remove('active');
+        };
+
+        // FIX: Converted hyphenated function name to standard camelCase variable mapping
+        function reEstablishZoom(shelfId) {
+            const sourceCards = document.querySelectorAll(`.hidden-cards-vault[data-shelf-id="${shelfId}"] .item-card-expanded`);
+            const container = document.getElementById('zoom-cards-container');
+            container.innerHTML = '';
+            sourceCards.forEach(card => { container.appendChild(card.cloneNode(true)); });
+        }
+
+        window.toggleExpandEdit = function (btn, itemId) {
+            const parent = btn.closest('.item-card-expanded');
+            const form = parent.querySelector(`.edit-form`);
+            form.classList.toggle('open');
+        };
+    </script>
+</body>
+
+</html>
