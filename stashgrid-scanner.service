@@ -1,0 +1,22 @@
+[Unit]
+Description=StashGrid USB Barcode Scanner Service
+After=network.target stashgrid.service
+Wants=stashgrid.service
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=__VENV_DIR__/bin/python __INSTALL_DIR__/scanner.py
+Restart=on-failure
+RestartSec=10
+
+# Pass log directory to match app.py
+Environment=STASHGRID_LOG_DIR=/var/log/stashgrid
+
+# Harden the service
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

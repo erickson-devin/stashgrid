@@ -60,8 +60,49 @@ python app.py
 
 ## Hardware scanner (scanner.py)
 
-`scanner.py` reads from the USB barcode scanner HID device directly and is **Linux/Pi only**.  
-Update `SCANNER_DEVICE` at the top of `scanner.py` to match your scanner's `/dev/input/by-id/` path, then run:
+`scanner.py` reads directly from the USB barcode scanner as a HID input device and is **Linux/Pi only**.  
+It runs as a separate process alongside `app.py` and writes to the same `inventory.db`.
+
+`setup.sh` will ask if you want to install the scanner service. If you said no, you can re-run `setup.sh` at any time.
+
+### Device path
+
+The scanner device path is hardcoded in `scanner.py`:
+
+```python
+SCANNER_DEVICE = "/dev/input/by-id/usb-2022_0202-event-kbd"
+```
+
+If your scanner shows up at a different path, update that line before running setup. List available devices with:
+
+```bash
+ls /dev/input/by-id/
+```
+
+### `input` group
+
+To read from `/dev/input/` without `sudo`, your user must be in the `input` group.  
+`setup.sh` adds this automatically, but **the change only takes effect after a logout/reboot**.
+
+```bash
+# Check your groups
+groups
+
+# Add manually if needed
+sudo usermod -aG input $USER
+# then reboot or logout
+```
+
+### Scanner service commands
+
+```bash
+sudo systemctl start stashgrid-scanner      # start
+sudo systemctl stop stashgrid-scanner       # stop
+sudo systemctl restart stashgrid-scanner    # restart
+journalctl -u stashgrid-scanner -f          # live logs
+```
+
+### Manual run (no systemd)
 
 ```bash
 source venv/bin/activate

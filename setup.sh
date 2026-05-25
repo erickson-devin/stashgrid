@@ -73,12 +73,12 @@ else
     info "Log directory $LOG_DIR already exists"
 fi
 
-# ── 5. Systemd service ────────────────────────────────────────
+# ── 5. Web app systemd service ───────────────────────────────
 SERVICE_FILE="$SCRIPT_DIR/stashgrid.service"
 SYSTEMD_PATH="/etc/systemd/system/stashgrid.service"
 
 if [ -f "$SERVICE_FILE" ]; then
-    info "Installing systemd service..."
+    info "Installing web app systemd service..."
     # Patch the service file with the actual install paths before copying
     sed \
         -e "s|__INSTALL_DIR__|$SCRIPT_DIR|g" \
@@ -88,28 +88,90 @@ if [ -f "$SERVICE_FILE" ]; then
 
     sudo systemctl daemon-reload
     sudo systemctl enable stashgrid.service
-    info "Service installed and enabled (starts on boot)"
+    info "Web app service installed and enabled (starts on boot)"
+else
+    warn "stashgrid.service template not found — skipping web service setup"
+fi
 
-    read -rp $'\n[?] Start StashGrid now? [Y/n]: ' START_NOW
-    START_NOW="${START_NOW:-Y}"
-    if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
+# ── 6. USB barcode scanner service (optional) ─────────────────
+SCANNER_SERVICE_FILE="$SCRIPT_DIR/stashgrid-scanner.service"
+SCANNER_SYSTEMD_PATH="/etc/systemd/system/stashgrid-scanner.service"
+
+echo ""
+read -rp $'[?] Set up the USB hardware barcode scanner service? [y/N]: ' SETUP_SCANNER
+SETUP_SCANNER="${SETUP_SCANNER:-N}"
+
+if [[ "$SETUP_SCANNER" =~ ^[Yy]$ ]]; then
+    # Verify scanner.py exists
+    if [ ! -f "$SCRIPT_DIR/scanner.py" ]; then
+        warn "scanner.py not found — skipping scanner service"
+    else
+        # The user needs to be in the 'input' group to read /dev/input/ without sudo
+        if ! groups "$USER" | grep -qw input; then
+            info "Adding $USER to the 'input' group (required for /dev/input/ access)..."
+            sudo usermod -aG input "$USER"
+            warn "Group change takes effect after you LOG OUT and back in (or reboot)."
+            warn "The scanner service will fail until then — run: sudo systemctl start stashgrid-scanner"
+        else
+            info "User $USER is already in the 'input' group"
+        fi
+
+        # Check / warn about the hardcoded device path in scanner.py
+        SCANNER_DEVICE=$(grep 'SCANNER_DEVICE' "$SCRIPT_DIR/scanner.py" | head -1 | cut -d'"' -f2)
+        warn "Scanner device is set to: $SCANNER_DEVICE"
+        warn "If your scanner appears at a different path, edit SCANNER_DEVICE in scanner.py"
+        warn "List available devices with: ls /dev/input/by-id/"
+
+        if [ -f "$SCANNER_SERVICE_FILE" ]; then
+            info "Installing USB scanner systemd service..."
+            sed \
+                -e "s|__INSTALL_DIR__|$SCRIPT_DIR|g" \
+                -e "s|__VENV_DIR__|$VENV_DIR|g" \
+                -e "s|__USER__|$USER|g" \
+                "$SCANNER_SERVICE_FILE" | sudo tee "$SCANNER_SYSTEMD_PATH" > /dev/null
+
+            sudo systemctl daemon-reload
+            sudo systemctl enable stashgrid-scanner.service
+            info "Scanner service installed and enabled (starts on boot)"
+        else
+            warn "stashgrid-scanner.service template not found — skipping"
+        fi
+    fi
+else
+    info "Skipping scanner service setup (you can re-run setup.sh to add it later)"
+fi
+
+# ── 7. Start services ─────────────────────────────────────────
+echo ""
+read -rp $'[?] Start StashGrid services now? [Y/n]: ' START_NOW
+START_NOW="${START_NOW:-Y}"
+if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
+    if [ -f "$SYSTEMD_PATH" ]; then
         sudo systemctl start stashgrid.service
         sleep 2
         sudo systemctl status stashgrid.service --no-pager || true
     fi
-else
-    warn "stashgrid.service template not found — skipping systemd setup"
-    warn "You can start manually with: source venv/bin/activate && python app.py"
+    if [ -f "$SCANNER_SYSTEMD_PATH" ] && [[ "$SETUP_SCANNER" =~ ^[Yy]$ ]]; then
+        sudo systemctl start stashgrid-scanner.service || warn "Scanner service failed to start (check device path / group membership)"
+    fi
 fi
 
 echo ""
 echo "=================================================="
 echo "   Setup complete!"
 echo ""
+echo "   Web App"
 echo "   Start:   sudo systemctl start stashgrid"
 echo "   Stop:    sudo systemctl stop stashgrid"
 echo "   Restart: sudo systemctl restart stashgrid"
 echo "   Logs:    journalctl -u stashgrid -f"
 echo "            tail -f /var/log/stashgrid/stashgrid.log"
+echo ""
+echo "   USB Scanner"
+echo "   Start:   sudo systemctl start stashgrid-scanner"
+echo "   Stop:    sudo systemctl stop stashgrid-scanner"
+echo "   Logs:    journalctl -u stashgrid-scanner -f"
+echo ""
+echo "   Device paths:  ls /dev/input/by-id/"
 echo "=================================================="
 echo ""
