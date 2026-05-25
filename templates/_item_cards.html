@@ -19,7 +19,7 @@
             <div class="item-micro-chip">
                 <div class="micro-thumb" data-item-id="{{ item[0] }}">
                     {% if item[10] %}
-                    <img src="{{ item[10] }}" alt="{{ item[2] or 'item' }}" loading="lazy">
+                    <img src="{{ item[10] }}" alt="{{ item[2] or 'item' }}" loading="lazy" style="transform: rotate(90deg);">
                     {% else %}
                     <div class="micro-thumb-fallback">{{ (item[2] or '?')[0]|upper }}</div>
                     {% endif %}
@@ -44,7 +44,7 @@
             <div style="display:flex; gap:12px; align-items:flex-start; margin-bottom:10px;">
                 <div class="expanded-thumb" data-item-id="{{ item[0] }}">
                     {% if item[10] %}
-                    <img src="{{ item[10] }}" alt="{{ item[2] or 'item' }}" loading="lazy">
+                    <img src="{{ item[10] }}" alt="{{ item[2] or 'item' }}" loading="lazy" style="transform: rotate(90deg);">
                     {% else %}
                     <div class="expanded-thumb-fallback">{{ (item[2] or '?')[0]|upper }}</div>
                     {% endif %}
