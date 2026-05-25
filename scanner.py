@@ -74,7 +74,7 @@ def remove_scan(item_barcode, room_id, shelf_id):
 
     with sqlite3.connect(DB) as conn:
         existing = conn.execute("""
-            SELECT id, quantity FROM inventory
+            SELECT id, quantity, name, low_stock_threshold FROM inventory
             WHERE barcode = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
         """, (item_barcode, room_id, shelf_id)).fetchone()
 
@@ -82,7 +82,7 @@ def remove_scan(item_barcode, room_id, shelf_id):
             print(f"[!] Warning: Barcode {item_barcode} not found on this shelf. Cannot remove.")
             return
 
-        item_id, quantity = existing
+        item_id, quantity, item_name, threshold = existing
 
         if quantity > 1:
             conn.execute("""
@@ -91,6 +91,7 @@ def remove_scan(item_barcode, room_id, shelf_id):
                     updated_at = ?
                 WHERE id = ?
             """, (now, item_id))
+            new_qty = quantity - 1
             print(f"[-] Decremented quantity for barcode: {item_barcode}")
         else:
             # Soft delete matching your web application's rules
@@ -102,7 +103,43 @@ def remove_scan(item_barcode, room_id, shelf_id):
                     removed_reason = 'Removed via Physical Scanner HUD'
                 WHERE id = ?
             """, (now, item_id))
+            new_qty = 0
             print(f"[✕] Final unit removed. Deactivating entry ID #{item_id}")
+
+        # Auto-add to shopping list if stock drops below threshold
+        if threshold and threshold > 0 and new_qty < threshold:
+            _auto_add_shopping_list(conn, item_barcode, item_name or "[ Unknown Item ]")
+
+def _auto_add_shopping_list(conn, barcode, name):
+    """Auto-insert a low-stock item into the default shopping list (scanner context).
+    Expects an active sqlite3 connection already inside a with-block.
+    Creates the default list automatically if none exists yet.
+    """
+    default_list = conn.execute(
+        "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
+    ).fetchone()
+    if not default_list:
+        cursor = conn.execute(
+            "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, 1)",
+            ("Shopping List", "")
+        )
+        list_id = cursor.lastrowid
+    else:
+        list_id = default_list[0]
+
+    existing = conn.execute(
+        "SELECT id FROM shopping_list_items WHERE list_id = ? AND barcode = ? AND is_completed = 0",
+        (list_id, barcode)
+    ).fetchone()
+
+    if not existing:
+        conn.execute(
+            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) "
+            "VALUES (?, ?, ?, 1, 0)",
+            (list_id, barcode, name)
+        )
+        print(f"[\U0001f6d2] Auto-added '{name}' ({barcode}) to shopping list (low stock)")
+
 
 def handle_scan(scanned):
     global current_room_id, current_shelf_id, scan_mode, mode_out_started

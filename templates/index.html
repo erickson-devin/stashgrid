@@ -9,12 +9,17 @@
     <span id="sync-text">LIVE SYNC: ACTIVE</span>
     <span style="color:var(--border)">|</span>
     <span>ROOMS CONFIG: <span style="color:var(--cyan)">ONLINE</span></span>
-    {% if room_info and shelves %}
-    <button class="btn-action btn-scan-start"
-        style="margin-left:auto; font-size:11px; padding:4px 12px; letter-spacing:.08em;"
-        data-room-id="{{ room_info[0] }}"
-        onclick="openScanModal(this.dataset.roomId)">&#128247; SCAN TO SHELF</button>
-    {% endif %}
+    <div style="display:flex; gap:8px; margin-left:auto; align-items:center; flex-wrap:wrap;">
+        {% if room_info and shelves %}
+        <button class="btn-action btn-scan-start"
+            style="font-size:11px; padding:4px 12px; letter-spacing:.08em;"
+            data-room-id="{{ room_info[0] }}"
+            onclick="openScanModal(this.dataset.roomId)">&#128247; SCAN TO SHELF</button>
+        {% endif %}
+        <button class="btn-action" id="btn-shopping-list"
+            style="font-size:11px; padding:4px 12px; letter-spacing:.08em; border-color:var(--yellow); color:var(--yellow);"
+            onclick="openShoppingListModal()">&#128203; SHOPPING LISTS</button>
+    </div>
 </div>
 
 <div class="room-controls">
@@ -170,6 +175,54 @@
         <!-- Photo uploads for item thumbnails -->
         <input type="file" id="scan-photo-input" accept="image/*" capture="environment" style="display:none;">
         <input type="file" id="item-photo-input" accept="image/*" capture="environment" style="display:none;">
+    </div>
+</div>
+
+<!-- Shopping List Modal -->
+<div id="shopping-list-overlay" class="scan-modal-overlay">
+    <div class="scan-modal-content" style="max-width:520px;">
+        <button class="close-scan-modal" onclick="closeShoppingListModal()">&#10005; CLOSE</button>
+        <h3>&#128203; PROCUREMENT QUEUE // <span style="color:#00ff88;">SHOPPING LISTS</span></h3>
+
+        <!-- Status bar -->
+        <div id="sl-status-bar" class="sl-status-bar"></div>
+
+        <!-- List Tabs -->
+        <div id="sl-tabs" class="sl-tabs-row"></div>
+
+        <!-- Active List Header: store, actions, rename form -->
+        <div id="sl-list-header"></div>
+
+        <!-- Item Checklist -->
+        <div id="sl-items-container"></div>
+
+        <!-- Add Manual Item -->
+        <div class="sl-section-title">&#43; ADD ITEM TO LIST</div>
+        <div class="sl-add-row">
+            <input type="text" id="sl-add-barcode" placeholder="BARCODE *"
+                style="flex:1; min-width:70px; font-size:11px; padding:6px 8px;">
+            <input type="text" id="sl-add-name" placeholder="Name (optional)"
+                style="flex:2; min-width:90px; font-size:11px; padding:6px 8px;">
+            <input type="number" id="sl-add-qty" value="1" min="1"
+                style="width:48px; font-size:11px; padding:6px 4px;" title="Quantity">
+            <button class="btn-action" style="font-size:10px; padding:5px 10px; white-space:nowrap;"
+                onclick="addManualItem()">ADD</button>
+        </div>
+
+        <!-- Execute Restock -->
+        <button id="sl-restock-btn" class="sl-restock-btn" onclick="executeRestock()"
+            style="display:none;">&#9889; EXECUTE RESTOCK ROUTINE</button>
+
+        <!-- Create New List -->
+        <div class="sl-section-title" style="margin-top:16px;">&#43; CREATE NEW LIST</div>
+        <div class="sl-create-row">
+            <input type="text" id="sl-new-name" placeholder="List Name *"
+                style="flex:2; min-width:90px; font-size:11px; padding:6px 8px;">
+            <input type="text" id="sl-new-store" placeholder="Store (optional)"
+                style="flex:2; min-width:90px; font-size:11px; padding:6px 8px;">
+            <button class="btn-action" style="font-size:10px; padding:5px 10px;"
+                onclick="createList()">CREATE</button>
+        </div>
     </div>
 </div>
 
@@ -365,6 +418,216 @@
     document.getElementById('scan-overlay').addEventListener('click', function(e) {
         if (e.target === this) closeScanModal();
     });
+
+    // ── Shopping List Modal ──────────────────────────────────────
+    let _activeListId = null;
+    let _slData = null;
+
+    window.openShoppingListModal = function() {
+        document.getElementById('shopping-list-overlay').classList.add('active');
+        loadShoppingLists();
+    };
+
+    window.closeShoppingListModal = function() {
+        document.getElementById('shopping-list-overlay').classList.remove('active');
+    };
+
+    document.getElementById('shopping-list-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeShoppingListModal();
+    });
+
+    async function loadShoppingLists() {
+        try {
+            const resp = await fetch('/api/shopping-lists');
+            _slData = await resp.json();
+            const lists = _slData.lists;
+            if (lists.length === 0) {
+                _activeListId = null;
+            } else if (!_activeListId || !lists.find(l => l.id === _activeListId)) {
+                _activeListId = (lists.find(l => l.is_default) || lists[0]).id;
+            }
+            _renderSlTabs(lists);
+            _renderSlItems(lists);
+        } catch(e) { console.error('Failed to load shopping lists', e); }
+    }
+
+    function _renderSlTabs(lists) {
+        const el = document.getElementById('sl-tabs');
+        if (!lists || lists.length === 0) {
+            el.innerHTML = '<div style="color:var(--dim);font-size:10px;padding:4px 0;">[ NO LISTS \u2014 CREATE ONE BELOW ]</div>';
+            return;
+        }
+        el.innerHTML = lists.map(l =>
+            `<button class="sl-tab ${l.id === _activeListId ? 'active' : ''}" onclick="window.switchList(${l.id})">${l.name}${l.is_default ? ' <span style="color:#00ff88;font-size:8px;">&#9670;</span>' : ''}</button>`
+        ).join('');
+    }
+
+    function _renderSlItems(lists) {
+        const activeList = lists && lists.find(l => l.id === _activeListId);
+        const container  = document.getElementById('sl-items-container');
+        const header     = document.getElementById('sl-list-header');
+        const restockBtn = document.getElementById('sl-restock-btn');
+
+        if (!activeList) {
+            header.innerHTML = '';
+            container.innerHTML = '<div style="color:var(--dim);font-size:11px;text-align:center;padding:20px 0;">[ SELECT OR CREATE A LIST ]</div>';
+            if (restockBtn) restockBtn.style.display = 'none';
+            return;
+        }
+
+        if (restockBtn) restockBtn.style.display = 'block';
+        const esc = s => s ? s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") : '';
+
+        header.innerHTML = `
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+                ${activeList.store_name ? `<span style="font-size:10px;color:var(--dim);">&#128204; ${activeList.store_name}</span><span style="color:var(--border);">|</span>` : ''}
+                ${activeList.is_default
+                    ? '<span style="font-size:9px;color:#00ff88;letter-spacing:.1em;">&#9670; DEFAULT</span>'
+                    : `<button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;" onclick="window.setDefaultList(${activeList.id})">SET DEFAULT</button>`
+                }
+                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--cyan);color:var(--cyan);" onclick="window.showRenameForm(${activeList.id},'${esc(activeList.name)}','${esc(activeList.store_name)}')">&#9998; RENAME</button>
+                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--magenta);color:var(--magenta);" onclick="window.deleteList(${activeList.id})">&#10005; DELETE LIST</button>
+            </div>
+            <div id="sl-rename-form" style="display:none;margin-bottom:8px;padding:8px;background:rgba(0,245,255,0.03);border:1px dashed var(--border);">
+                <div style="font-size:9px;color:var(--dim);letter-spacing:.1em;margin-bottom:6px;font-family:'Orbitron',sans-serif;">RENAME LIST</div>
+                <input type="text" id="sl-rename-name" placeholder="List Name *" style="width:100%;margin-bottom:4px;font-size:11px;">
+                <input type="text" id="sl-rename-store" placeholder="Store (optional)" style="width:100%;margin-bottom:6px;font-size:11px;">
+                <div style="display:flex;gap:6px;">
+                    <button class="btn-action" style="font-size:10px;padding:3px 10px;" onclick="window.submitRename(${activeList.id})">SAVE</button>
+                    <button class="btn-action btn-secondary" style="font-size:10px;padding:3px 10px;" onclick="document.getElementById('sl-rename-form').style.display='none'">CANCEL</button>
+                </div>
+            </div>`;
+
+        if (!activeList.items || activeList.items.length === 0) {
+            container.innerHTML = '<div style="color:var(--dim);font-size:11px;text-align:center;padding:14px 0;border-bottom:1px solid var(--border);">[ QUEUE EMPTY \u2014 ADD ITEMS BELOW OR SET A LOW STOCK THRESHOLD ON AN ITEM ]</div>';
+            return;
+        }
+
+        container.innerHTML = `<ul class="sl-item-list">${activeList.items.map(item =>
+            `<li class="sl-item${item.is_completed ? ' completed' : ''}" data-sl-item-id="${item.id}">
+                <label class="sl-checkbox-label" title="${item.is_completed ? 'Mark incomplete' : 'Mark complete'}">
+                    <input type="checkbox" class="sl-checkbox" ${item.is_completed ? 'checked' : ''} onchange="window.toggleComplete(${item.id})">
+                    <span class="sl-checkmark"></span>
+                </label>
+                <div class="sl-item-info">
+                    <span class="sl-item-name">${item.name || item.barcode}</span>
+                    <span class="sl-item-barcode">${item.barcode}</span>
+                </div>
+                <span class="sl-item-qty">&#215;${item.requested_qty}</span>
+            </li>`
+        ).join('')}</ul>`;
+    }
+
+    window.switchList = function(listId) {
+        _activeListId = listId;
+        if (_slData) { _renderSlTabs(_slData.lists); _renderSlItems(_slData.lists); }
+    };
+
+    window.toggleComplete = async function(itemId) {
+        try {
+            await fetch('/api/shopping-lists/toggle-complete/' + itemId, { method: 'POST' });
+            await loadShoppingLists();
+        } catch(e) { console.error('Toggle failed', e); }
+    };
+
+    window.addManualItem = async function() {
+        const barcode = document.getElementById('sl-add-barcode').value.trim().toUpperCase();
+        const name    = document.getElementById('sl-add-name').value.trim();
+        const qty     = parseInt(document.getElementById('sl-add-qty').value) || 1;
+        if (!barcode || !_activeListId) { document.getElementById('sl-add-barcode').focus(); return; }
+        const fd = new FormData();
+        fd.append('list_id', _activeListId); fd.append('barcode', barcode);
+        fd.append('name', name || barcode);  fd.append('qty', qty);
+        try {
+            await fetch('/api/shopping-lists/add', { method: 'POST', body: fd });
+            document.getElementById('sl-add-barcode').value = '';
+            document.getElementById('sl-add-name').value    = '';
+            document.getElementById('sl-add-qty').value     = '1';
+            await loadShoppingLists();
+        } catch(e) { console.error('Add failed', e); }
+    };
+
+    window.createList = async function() {
+        const name  = document.getElementById('sl-new-name').value.trim();
+        const store = document.getElementById('sl-new-store').value.trim();
+        if (!name) { document.getElementById('sl-new-name').focus(); return; }
+        const fd = new FormData();
+        fd.append('name', name); fd.append('store_name', store);
+        try {
+            const resp = await fetch('/api/shopping-lists/create', { method: 'POST', body: fd });
+            const data = await resp.json();
+            _activeListId = data.list_id;
+            document.getElementById('sl-new-name').value  = '';
+            document.getElementById('sl-new-store').value = '';
+            await loadShoppingLists();
+        } catch(e) { console.error('Create list failed', e); }
+    };
+
+    window.setDefaultList = async function(listId) {
+        await fetch('/api/shopping-lists/' + listId + '/set-default', { method: 'POST' });
+        await loadShoppingLists();
+    };
+
+    window.showRenameForm = function(listId, currentName, currentStore) {
+        const form = document.getElementById('sl-rename-form');
+        if (!form) return;
+        if (form.style.display !== 'none') { form.style.display = 'none'; return; }
+        document.getElementById('sl-rename-name').value  = currentName  || '';
+        document.getElementById('sl-rename-store').value = currentStore || '';
+        form.style.display = 'block';
+    };
+
+    window.submitRename = async function(listId) {
+        const name  = document.getElementById('sl-rename-name').value.trim();
+        const store = document.getElementById('sl-rename-store').value.trim();
+        if (!name) return;
+        const fd = new FormData();
+        fd.append('name', name); fd.append('store_name', store);
+        await fetch('/api/shopping-lists/' + listId + '/rename', { method: 'POST', body: fd });
+        await loadShoppingLists();
+    };
+
+    window.deleteList = async function(listId) {
+        if (!confirm('DELETE this shopping list and ALL its items?\nThis cannot be undone.')) return;
+        await fetch('/api/shopping-lists/' + listId + '/delete', { method: 'POST' });
+        _activeListId = null;
+        await loadShoppingLists();
+    };
+
+    window.executeRestock = async function() {
+        if (!_activeListId) return;
+        const activeList = _slData && _slData.lists.find(l => l.id === _activeListId);
+        const completedCount = activeList ? activeList.items.filter(i => i.is_completed).length : 0;
+        if (completedCount === 0) {
+            _showSlStatus('[ NO COMPLETED ITEMS ]\nCheck off items before executing restock.', 'warn');
+            return;
+        }
+        const fd = new FormData();
+        fd.append('list_id', _activeListId);
+        try {
+            const resp = await fetch('/api/shopping-lists/commit', { method: 'POST', body: fd });
+            const data = await resp.json();
+            let msg = '\u2713 RESTOCK COMPLETE // ' + data.restocked.length + ' item(s) restocked';
+            if (data.unknown_barcodes && data.unknown_barcodes.length > 0) {
+                msg += '\n\n\u26A0 ' + data.unknown_barcodes.length + ' BARCODE(S) NOT YET IN INVENTORY:';
+                msg += '\n' + data.unknown_barcodes.map(u => '  \u2022 ' + (u.name || u.barcode)).join('\n');
+                msg += '\n\nScan these to a shelf first via SCAN TO SHELF, then commit again.';
+                _showSlStatus(msg, 'warn');
+            } else {
+                _showSlStatus(msg, 'ok');
+            }
+            await loadShoppingLists();
+        } catch(e) { _showSlStatus('\u26A0 RESTOCK FAILED: ' + e.message, 'error'); }
+    };
+
+    function _showSlStatus(msg, type) {
+        const el = document.getElementById('sl-status-bar');
+        if (!el) return;
+        el.textContent = msg;
+        el.className = 'sl-status-bar sl-status-' + type;
+        el.style.display = 'block';
+        if (type === 'ok') setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
 </script>
 
 {% endblock %}

@@ -852,7 +852,202 @@
             font-weight: 700;
             color: var(--dim);
         }
+
+        /* ── Shopping List Modal ── */
+        .sl-tabs-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .sl-tab {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--dim);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px;
+            letter-spacing: .1em;
+            padding: 4px 12px;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: border-color .2s, color .2s, background .2s;
+        }
+
+        .sl-tab:hover {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+
+        .sl-tab.active {
+            border-color: var(--magenta);
+            color: var(--magenta);
+            background: rgba(255, 0, 200, .08);
+            box-shadow: 0 0 8px rgba(255, 0, 200, .15);
+        }
+
+        .sl-item-list {
+            list-style: none;
+            margin: 0 0 8px 0;
+            padding: 0;
+            max-height: 240px;
+            overflow-y: auto;
+        }
+
+        .sl-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 0;
+            border-bottom: 1px solid var(--border);
+            transition: opacity .25s;
+        }
+
+        .sl-item.completed {
+            opacity: 0.38;
+        }
+
+        .sl-item.completed .sl-item-name {
+            text-decoration: line-through;
+            color: var(--dim);
+        }
+
+        .sl-checkbox-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .sl-checkbox { display: none; }
+
+        .sl-checkmark {
+            width: 16px;
+            height: 16px;
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color .2s, background .2s, box-shadow .2s;
+            font-size: 10px;
+        }
+
+        .sl-checkbox:checked + .sl-checkmark {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, .12);
+            box-shadow: 0 0 6px rgba(0, 255, 136, .35);
+            color: #00ff88;
+        }
+
+        .sl-checkbox:checked + .sl-checkmark::after {
+            content: '✓';
+        }
+
+        .sl-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sl-item-name {
+            display: block;
+            font-size: 12px;
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .sl-item-barcode {
+            display: block;
+            font-size: 9px;
+            color: var(--magenta);
+            letter-spacing: .08em;
+            margin-top: 1px;
+        }
+
+        .sl-item-qty {
+            font-size: 12px;
+            color: var(--yellow);
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .sl-restock-btn {
+            width: 100%;
+            padding: 11px;
+            background: transparent;
+            border: 2px solid var(--yellow);
+            color: var(--yellow);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .18em;
+            cursor: pointer;
+            text-transform: uppercase;
+            margin-top: 12px;
+            transition: background .2s, box-shadow .2s;
+        }
+
+        .sl-restock-btn:hover {
+            background: rgba(245, 230, 66, .1);
+            box-shadow: 0 0 20px rgba(245, 230, 66, .2);
+        }
+
+        .sl-status-bar {
+            font-size: 11px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            font-family: 'Share Tech Mono', monospace;
+            white-space: pre-line;
+            line-height: 1.5;
+            display: none;
+        }
+
+        .sl-status-ok {
+            color: #00ff88;
+            background: rgba(0, 255, 136, .05);
+            border: 1px solid rgba(0, 255, 136, .25);
+        }
+
+        .sl-status-warn {
+            color: var(--yellow);
+            background: rgba(245, 230, 66, .05);
+            border: 1px solid rgba(245, 230, 66, .3);
+        }
+
+        .sl-status-error {
+            color: var(--magenta);
+            background: rgba(255, 0, 200, .05);
+            border: 1px solid rgba(255, 0, 200, .25);
+        }
+
+        .sl-section-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 9px;
+            letter-spacing: .15em;
+            color: var(--dim);
+            text-transform: uppercase;
+            margin: 12px 0 6px;
+        }
+
+        .sl-add-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: stretch;
+        }
+
+        .sl-create-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: stretch;
+            padding-top: 10px;
+            border-top: 1px dashed var(--border);
+            margin-top: 10px;
+        }
     </style>
+
 </head>
 
 <body>

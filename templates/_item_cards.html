@@ -87,6 +87,11 @@
                         style="width:100%; margin-bottom:4px;">
                     <textarea name="notes" placeholder="Update descriptive payload data..." rows="2"
                         style="width:100%; font-family:inherit; font-size:11px;">{{ item[6] or '' }}</textarea>
+                    <label style="font-size:9px; letter-spacing:.12em; color:var(--dim); display:block; margin-top:8px; margin-bottom:3px; font-family:'Orbitron', sans-serif; text-transform:uppercase;">Low Stock Threshold</label>
+                    <input type="number" name="low_stock_threshold" value="{{ item[11] or 0 }}" min="0"
+                        placeholder="0 = disabled"
+                        title="Auto-add to shopping list when quantity drops below this number"
+                        style="width:100%; margin-bottom:4px;">
                     <button type="submit" class="btn-action" style="width:100%; margin-top:4px;">COMMIT CHANGES</button>
                 </form>
 
