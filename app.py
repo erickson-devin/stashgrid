@@ -733,7 +733,7 @@ def _find_kiosk_browser():
     Tries Chromium first (the default browser on Raspberry Pi OS),
     then Firefox as a fallback.
     """
-    for bin_name in ("chromium-browser", "chromium"):
+    for bin_name in ("chromium", "chromium-browser"):
         if shutil.which(bin_name):
             return [
                 bin_name,
