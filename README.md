@@ -5,7 +5,7 @@ A spatial inventory system for Raspberry Pi — scan barcodes with a USB scanner
 ## Quickstart (new Pi)
 
 ```bash
-git clone <your-repo-url> stashgrid
+git clone https://github.com/erickson-devin/stashgrid.git stashgrid
 cd stashgrid
 bash setup.sh
 ```
