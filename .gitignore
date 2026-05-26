@@ -6,3 +6,6 @@ venv/
 logs/
 *.log
 static/photos/
+
+# Local / experimental files — not for the public repo
+local/
