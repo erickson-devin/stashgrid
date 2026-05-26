@@ -78,6 +78,11 @@ def init_db():
             conn.execute("ALTER TABLE inventory ADD COLUMN low_stock_threshold INTEGER DEFAULT 0")
         except Exception:
             pass  # Column already exists
+        # Idempotent migration: add preferred_store column
+        try:
+            conn.execute("ALTER TABLE inventory ADD COLUMN preferred_store TEXT DEFAULT 'Costco'")
+        except Exception:
+            pass  # Column already exists
         # Shopping list tables
         conn.execute("""
             CREATE TABLE IF NOT EXISTS shopping_lists (
@@ -121,7 +126,7 @@ def _fetch_items_by_layout(room_id=None, q=""):
         if q:
             like = f"%{q}%"
             rows = conn.execute("""
-                SELECT i.id, i.barcode, i.name, r.name, s.shelf_number, i.quantity, i.notes, i.updated_at, i.room_id, i.shelf_id, i.photo_path, i.low_stock_threshold
+                SELECT i.id, i.barcode, i.name, r.name, s.shelf_number, i.quantity, i.notes, i.updated_at, i.room_id, i.shelf_id, i.photo_path, i.low_stock_threshold, i.preferred_store
                 FROM inventory i
                 LEFT JOIN rooms r ON i.room_id = r.id
                 LEFT JOIN shelves s ON i.shelf_id = s.id
@@ -132,7 +137,7 @@ def _fetch_items_by_layout(room_id=None, q=""):
             return rows
         elif room_id:
             rows = conn.execute("""
-                SELECT i.id, i.barcode, i.name, r.name, s.shelf_number, i.quantity, i.notes, i.updated_at, i.room_id, i.shelf_id, i.photo_path, i.low_stock_threshold
+                SELECT i.id, i.barcode, i.name, r.name, s.shelf_number, i.quantity, i.notes, i.updated_at, i.room_id, i.shelf_id, i.photo_path, i.low_stock_threshold, i.preferred_store
                 FROM inventory i
                 LEFT JOIN rooms r ON i.room_id = r.id
                 LEFT JOIN shelves s ON i.shelf_id = s.id
@@ -168,6 +173,13 @@ def index():
     room_info, shelves = _get_room_layout(selected_room_id)
     items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
 
+    with sqlite3.connect(DB) as conn:
+        store_names = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT store_name FROM shopping_lists WHERE store_name IS NOT NULL AND store_name != '' ORDER BY store_name ASC"
+            ).fetchall()
+        ]
+
     return render_template(
         "index.html",
         rooms=rooms,
@@ -175,7 +187,8 @@ def index():
         shelves=shelves,
         items=items,
         selected_room_id=selected_room_id,
-        q=q
+        q=q,
+        store_names=store_names
     )
 
 
@@ -291,22 +304,40 @@ def _web_lookup_name(barcode):
     return _lookup_open_food_facts(barcode) or _lookup_upcitemdb(barcode) or ""
 
 
-def _auto_add_to_shopping_list(conn, barcode, name):
-    """Auto-insert a low-stock item into the default shopping list.
+def _auto_add_to_shopping_list(conn, barcode, name, preferred_store="Costco"):
+    """Auto-insert a low-stock item into the best-matching shopping list.
+    Resolution order:
+      1. A list whose store_name exactly matches preferred_store (case-insensitive)
+      2. The list flagged is_default = 1
+      3. A newly-created default list if none exists
     Called within an existing DB connection — no new connection needed.
-    Creates the default list automatically if none exists yet.
     """
-    default_list = conn.execute(
-        "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
-    ).fetchone()
-    if not default_list:
+    list_id = None
+
+    # 1. Try to find a list matching the item's preferred store
+    if preferred_store:
+        match = conn.execute(
+            "SELECT id FROM shopping_lists WHERE LOWER(store_name) = LOWER(?) LIMIT 1",
+            (preferred_store,)
+        ).fetchone()
+        if match:
+            list_id = match[0]
+
+    # 2. Fall back to the default list
+    if list_id is None:
+        default_list = conn.execute(
+            "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
+        ).fetchone()
+        if default_list:
+            list_id = default_list[0]
+
+    # 3. No lists exist at all — create one named after the preferred store
+    if list_id is None:
         cursor = conn.execute(
             "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, 1)",
-            ("Shopping List", "")
+            (preferred_store or "Shopping List", preferred_store or "")
         )
         list_id = cursor.lastrowid
-    else:
-        list_id = default_list[0]
 
     existing = conn.execute(
         "SELECT id FROM shopping_list_items WHERE list_id = ? AND barcode = ? AND is_completed = 0",
@@ -319,7 +350,10 @@ def _auto_add_to_shopping_list(conn, barcode, name):
             "VALUES (?, ?, ?, 1, 0)",
             (list_id, barcode, name)
         )
-        logger.info("Auto-added '%s' (%s) to default shopping list (low stock triggered)", name, barcode)
+        logger.info(
+            "Auto-added '%s' (%s) to shopping list %d (store: %s, low stock triggered)",
+            name, barcode, list_id, preferred_store or "default"
+        )
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -423,7 +457,14 @@ def api_items():
     room_info, shelves = _get_room_layout(selected_room_id)
     items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
 
-    html = render_template("_item_cards.html", room_info=room_info, items=items, shelves=shelves, q=q)
+    with sqlite3.connect(DB) as conn:
+        store_names = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT store_name FROM shopping_lists WHERE store_name IS NOT NULL AND store_name != '' ORDER BY store_name ASC"
+            ).fetchall()
+        ]
+
+    html = render_template("_item_cards.html", room_info=room_info, items=items, shelves=shelves, q=q, store_names=store_names)
     return jsonify({"html": html, "count": len(items)})
 
 
@@ -433,13 +474,14 @@ def edit_item(item_id):
     notes = request.form.get("notes", "").strip()
     room_id = request.form.get("room_id")
     threshold = int(request.form.get("low_stock_threshold", 0) or 0)
+    preferred_store = request.form.get("preferred_store", "Costco").strip() or "Costco"
 
     with sqlite3.connect(DB) as conn:
         conn.execute("""
             UPDATE inventory
-            SET name = ?, notes = ?, low_stock_threshold = ?, updated_at = CURRENT_TIMESTAMP
+            SET name = ?, notes = ?, low_stock_threshold = ?, preferred_store = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        """, (name, notes, threshold, item_id))
+        """, (name, notes, threshold, preferred_store, item_id))
 
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
@@ -452,13 +494,13 @@ def remove_item_quantity(item_id):
 
     with sqlite3.connect(DB) as conn:
         item = conn.execute(
-            "SELECT quantity, barcode, name, low_stock_threshold FROM inventory WHERE id = ? AND is_active = 1",
+            "SELECT quantity, barcode, name, low_stock_threshold, preferred_store FROM inventory WHERE id = ? AND is_active = 1",
             (item_id,)
         ).fetchone()
         if not item:
             return redirect("/")
 
-        current_quantity, barcode, item_name, threshold = item
+        current_quantity, barcode, item_name, threshold, preferred_store = item
         if current_quantity > amount:
             conn.execute(
                 "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -473,9 +515,12 @@ def remove_item_quantity(item_id):
             )
             new_qty = 0
 
-        # Auto-add to shopping list if stock drops below threshold
+        # Auto-add to the item's preferred store list if stock drops below threshold
         if threshold and threshold > 0 and new_qty < threshold:
-            _auto_add_to_shopping_list(conn, barcode, item_name or "[ Unknown Item ]")
+            _auto_add_to_shopping_list(
+                conn, barcode, item_name or "[ Unknown Item ]",
+                preferred_store=preferred_store or "Costco"
+            )
 
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 

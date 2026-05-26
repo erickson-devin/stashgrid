@@ -74,7 +74,7 @@ def remove_scan(item_barcode, room_id, shelf_id):
 
     with sqlite3.connect(DB) as conn:
         existing = conn.execute("""
-            SELECT id, quantity, name, low_stock_threshold FROM inventory
+            SELECT id, quantity, name, low_stock_threshold, preferred_store FROM inventory
             WHERE barcode = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
         """, (item_barcode, room_id, shelf_id)).fetchone()
 
@@ -82,7 +82,7 @@ def remove_scan(item_barcode, room_id, shelf_id):
             print(f"[!] Warning: Barcode {item_barcode} not found on this shelf. Cannot remove.")
             return
 
-        item_id, quantity, item_name, threshold = existing
+        item_id, quantity, item_name, threshold, preferred_store = existing
 
         if quantity > 1:
             conn.execute("""
@@ -108,24 +108,45 @@ def remove_scan(item_barcode, room_id, shelf_id):
 
         # Auto-add to shopping list if stock drops below threshold
         if threshold and threshold > 0 and new_qty < threshold:
-            _auto_add_shopping_list(conn, item_barcode, item_name or "[ Unknown Item ]")
+            _auto_add_shopping_list(
+                conn, item_barcode, item_name or "[ Unknown Item ]",
+                preferred_store=preferred_store or "Costco"
+            )
 
-def _auto_add_shopping_list(conn, barcode, name):
-    """Auto-insert a low-stock item into the default shopping list (scanner context).
+def _auto_add_shopping_list(conn, barcode, name, preferred_store="Costco"):
+    """Auto-insert a low-stock item into the best-matching shopping list (scanner context).
+    Resolution order:
+      1. A list whose store_name matches preferred_store (case-insensitive)
+      2. The list flagged is_default = 1
+      3. A newly-created list named after the preferred store
     Expects an active sqlite3 connection already inside a with-block.
-    Creates the default list automatically if none exists yet.
     """
-    default_list = conn.execute(
-        "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
-    ).fetchone()
-    if not default_list:
+    list_id = None
+
+    # 1. Match by preferred store name
+    if preferred_store:
+        match = conn.execute(
+            "SELECT id FROM shopping_lists WHERE LOWER(store_name) = LOWER(?) LIMIT 1",
+            (preferred_store,)
+        ).fetchone()
+        if match:
+            list_id = match[0]
+
+    # 2. Fall back to default list
+    if list_id is None:
+        default_list = conn.execute(
+            "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
+        ).fetchone()
+        if default_list:
+            list_id = default_list[0]
+
+    # 3. No lists exist — create one
+    if list_id is None:
         cursor = conn.execute(
             "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, 1)",
-            ("Shopping List", "")
+            (preferred_store or "Shopping List", preferred_store or "")
         )
         list_id = cursor.lastrowid
-    else:
-        list_id = default_list[0]
 
     existing = conn.execute(
         "SELECT id FROM shopping_list_items WHERE list_id = ? AND barcode = ? AND is_completed = 0",
@@ -138,7 +159,7 @@ def _auto_add_shopping_list(conn, barcode, name):
             "VALUES (?, ?, ?, 1, 0)",
             (list_id, barcode, name)
         )
-        print(f"[\U0001f6d2] Auto-added '{name}' ({barcode}) to shopping list (low stock)")
+        print(f"[\U0001f6d2] Auto-added '{name}' ({barcode}) to '{preferred_store}' list (low stock)")
 
 
 def handle_scan(scanned):

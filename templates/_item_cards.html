@@ -1,4 +1,14 @@
+<!-- Store names datalist — shared across all item edit forms on this render -->
+<datalist id="store-names-datalist">
+    {% for sname in (store_names or []) %}<option value="{{ sname }}"></option>{% endfor %}
+    <option value="Costco"></option>
+    <option value="Amazon"></option>
+    <option value="Walmart"></option>
+    <option value="Target"></option>
+</datalist>
+
 {% if room_info %}
+
 
 <div class="shelf-canvas">
     {% for shelf in shelves %}
@@ -91,6 +101,13 @@
                     <input type="number" name="low_stock_threshold" value="{{ item[11] or 0 }}" min="0"
                         placeholder="0 = disabled"
                         title="Auto-add to shopping list when quantity drops below this number"
+                        style="width:100%; margin-bottom:4px;">
+                    <label style="font-size:9px; letter-spacing:.12em; color:var(--dim); display:block; margin-top:8px; margin-bottom:3px; font-family:'Orbitron', sans-serif; text-transform:uppercase;">Preferred Store</label>
+                    <input type="text" name="preferred_store"
+                        value="{{ item[12] or 'Costco' }}"
+                        list="store-names-datalist"
+                        placeholder="Costco"
+                        title="Items routed to the shopping list whose store matches this value"
                         style="width:100%; margin-bottom:4px;">
                     <button type="submit" class="btn-action" style="width:100%; margin-top:4px;">COMMIT CHANGES</button>
                 </form>
