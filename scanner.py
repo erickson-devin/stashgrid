@@ -2,6 +2,9 @@ import sqlite3
 import requests
 import time
 import sys
+import os
+import json
+import tempfile
 from datetime import datetime
 
 # evdev is a Linux-only package that reads raw hardware input events.
@@ -21,6 +24,7 @@ except ImportError:
 
 SCANNER_DEVICE = "/dev/input/by-id/usb-2022_0202-event-kbd"
 DB = "inventory.db"
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanner_state.json")
 
 # Spatial Tracking States
 current_room_id = None
@@ -42,8 +46,42 @@ key_map = {
     "KEY_Z": "Z", "KEY_MINUS": "-"
 }
 
+def _write_state():
+    """Atomically write current scanner state to a JSON file so Flask can serve it."""
+    state = {
+        "mode": scan_mode,
+        "room_id": current_room_id,
+        "shelf_id": current_shelf_id,
+        "mode_out_started": mode_out_started,
+        "timeout_seconds": MODE_OUT_TIMEOUT_SECONDS,
+        "updated_at": datetime.now().isoformat()
+    }
+    # Get shelf display number from DB for a human-readable label
+    if current_shelf_id:
+        try:
+            with sqlite3.connect(DB) as conn:
+                row = conn.execute(
+                    "SELECT shelf_number FROM shelves WHERE id = ?", (current_shelf_id,)
+                ).fetchone()
+                state["shelf_number"] = row[0] if row else None
+        except Exception:
+            state["shelf_number"] = None
+    else:
+        state["shelf_number"] = None
+
+    try:
+        dir_ = os.path.dirname(STATE_FILE)
+        with tempfile.NamedTemporaryFile("w", dir=dir_, delete=False, suffix=".tmp") as f:
+            json.dump(state, f)
+            tmp_path = f.name
+        os.replace(tmp_path, STATE_FILE)  # atomic on POSIX
+    except Exception as e:
+        print(f"[!] Failed to write scanner state: {e}")
+
+
 def add_scan(item_barcode, room_id, shelf_id):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
     with sqlite3.connect(DB) as conn:
         # Match items living at this exact relational coordinate
@@ -174,6 +212,7 @@ def handle_scan(scanned):
         current_shelf_id = None
         scan_mode = "IN"
         mode_out_started = None
+        _write_state()
         print("======== SESSION RESET / DISENGAGED ========")
         print("Awaiting physical location target scanning...")
         return
@@ -181,12 +220,14 @@ def handle_scan(scanned):
     if scanned in ["SG-ADD", "SG-IN"]:
         scan_mode = "IN"
         mode_out_started = None
+        _write_state()
         print("--> Mode toggled: [ INTAKE / ADD ]")
         return
 
     if scanned in ["SG-REMOVE", "SG-OUT"]:
         scan_mode = "OUT"
         mode_out_started = time.time()
+        _write_state()
         print("--> Mode toggled: [ OUTTAKE / REMOVE ] (5 Minute Safety Timer Active)")
         return
 
@@ -200,6 +241,7 @@ def handle_scan(scanned):
 
             current_room_id = int(room_part.replace("R", ""))
             current_shelf_id = int(shelf_part.replace("S", ""))
+            _write_state()
 
             print(f"\n=========================================")
             print(f"TARGET ACQUIRED: Room ID {current_room_id} // Shelf ID {current_shelf_id}")
@@ -229,6 +271,7 @@ def enforce_mode_timeout():
         if elapsed >= MODE_OUT_TIMEOUT_SECONDS:
             scan_mode = "IN"
             mode_out_started = None
+            _write_state()
             print("MODE-OUT timed out after 5 minutes. Mode reset to IN.")
 
 def lookup_product_name(barcode):

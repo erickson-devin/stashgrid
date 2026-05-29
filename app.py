@@ -432,6 +432,25 @@ def upload_item_photo(item_id):
         return jsonify({"error": str(e)}), 500
 
 
+SCANNER_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanner_state.json")
+
+
+@app.route("/api/scanner-state")
+def scanner_state():
+    """Return the live state written by scanner.py (mode, shelf, room).
+    Returns a default 'offline' payload if scanner.py isn't running yet."""
+    try:
+        with open(SCANNER_STATE_FILE, "r") as f:
+            state = json.load(f)
+        state["online"] = True
+        return jsonify(state)
+    except FileNotFoundError:
+        return jsonify({"online": False, "mode": "IN", "shelf_number": None, "shelf_id": None, "room_id": None})
+    except Exception as e:
+        logger.warning("Failed to read scanner state file: %s", e)
+        return jsonify({"online": False, "mode": "IN", "shelf_number": None, "shelf_id": None, "room_id": None})
+
+
 @app.route("/api/inventory-hash")
 def inventory_hash():
     q = request.args.get("q", "").strip()

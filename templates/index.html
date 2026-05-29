@@ -9,6 +9,23 @@
     <span id="sync-text">LIVE SYNC: ACTIVE</span>
     <span style="color:var(--border)">|</span>
     <span>ROOMS CONFIG: <span style="color:var(--cyan)">ONLINE</span></span>
+    <span style="color:var(--border)">|</span>
+    <!-- Scanner mode key: updates live as shelf selection changes -->
+    <span id="scanner-mode-key" style="
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        letter-spacing: .08em;
+        padding: 2px 8px;
+        border: 1px solid rgba(0,245,255,.2);
+        background: rgba(0,245,255,.04);
+        white-space: nowrap;
+    ">
+        <span style="font-size:9px; letter-spacing:.15em; color:var(--dim); font-family:'Orbitron',sans-serif;">SCAN-IN</span>
+        <span style="color:var(--border)">/</span>
+        <span id="scanner-shelf-label" style="color:var(--dim); font-style:italic;">— SELECT SHELF —</span>
+    </span>
     <div style="display:flex; gap:8px; margin-left:auto; align-items:center; flex-wrap:wrap;">
         {% if room_info and shelves %}
         <button class="btn-action btn-scan-start"
@@ -129,7 +146,7 @@
         <!-- Shelf selector -->
         <div class="scan-section">
             <label class="scan-label">Target Shelf</label>
-            <select id="scan-shelf-select">
+            <select id="scan-shelf-select" onchange="_updateScannerModeKey()">
                 {% if shelves %}
                 {% for shelf in shelves %}
                 <option value="{{ shelf[0] }}">LEVEL {{ shelf[1] }}</option>
@@ -249,6 +266,81 @@
     let _lastScannedItemId = null;
     let _scanRoomId = null;
 
+    // ── Scanner Mode Key: driven by live scanner.py state ──
+    // Polls /api/scanner-state every 3 s (same cadence as inventory sync).
+    // Falls back to reading the modal shelf-select when the physical scanner
+    // is offline (camera-only scanning workflow).
+    async function _pollScannerState() {
+        try {
+            const resp = await fetch('/api/scanner-state');
+            const s = await resp.json();
+            _applyScannerModeKey(s.online, s.mode, s.shelf_number);
+        } catch(e) {
+            // network error — leave key as-is
+        }
+    }
+
+    function _applyScannerModeKey(online, mode, shelfNumber) {
+        const label = document.getElementById('scanner-shelf-label');
+        const pill  = document.getElementById('scanner-mode-key');
+        const modeEl = pill ? pill.querySelector('span:first-child') : null;
+        if (!label || !pill || !modeEl) return;
+
+        if (!online) {
+            // Physical scanner offline — reflect camera modal selection instead
+            const select = document.getElementById('scan-shelf-select');
+            if (select && select.value && select.options[select.selectedIndex]) {
+                modeEl.textContent = 'SCAN-IN';
+                modeEl.style.color = 'var(--dim)';
+                label.textContent = select.options[select.selectedIndex].text.trim();
+                label.style.color = 'var(--cyan)';
+                label.style.fontStyle = 'normal';
+                label.style.textShadow = '0 0 6px rgba(0,245,255,.4)';
+                pill.style.borderColor = 'rgba(0,245,255,.2)';
+                pill.style.background  = 'rgba(0,245,255,.04)';
+            } else {
+                modeEl.textContent = 'SCAN-IN';
+                modeEl.style.color = 'var(--dim)';
+                label.textContent = '\u2014 SELECT SHELF \u2014';
+                label.style.color = 'var(--dim)';
+                label.style.fontStyle = 'italic';
+                label.style.textShadow = '';
+                pill.style.borderColor = 'rgba(0,245,255,.12)';
+                pill.style.background  = 'rgba(0,245,255,.02)';
+            }
+            return;
+        }
+
+        // Physical scanner IS online — show its real mode
+        if (mode === 'OUT') {
+            modeEl.textContent = 'SCAN-OUT';
+            modeEl.style.color = 'var(--magenta)';
+            modeEl.style.textShadow = '0 0 6px rgba(255,0,200,.6)';
+            pill.style.borderColor = 'rgba(255,0,200,.5)';
+            pill.style.background  = 'rgba(255,0,200,.07)';
+            label.style.color = 'var(--magenta)';
+            label.style.fontStyle = 'normal';
+            label.style.textShadow = '0 0 4px rgba(255,0,200,.4)';
+        } else {
+            modeEl.textContent = 'SCAN-IN';
+            modeEl.style.color = 'var(--cyan)';
+            modeEl.style.textShadow = '0 0 6px rgba(0,245,255,.6)';
+            pill.style.borderColor = 'rgba(0,245,255,.5)';
+            pill.style.background  = 'rgba(0,245,255,.08)';
+            label.style.color = 'var(--cyan)';
+            label.style.fontStyle = 'normal';
+            label.style.textShadow = '0 0 4px rgba(0,245,255,.4)';
+        }
+
+        label.textContent = shelfNumber ? 'LEVEL ' + shelfNumber : '\u2014 NO SHELF SET \u2014';
+    }
+
+    // Keep modal dropdown wired up for camera-only workflow
+    function _updateScannerModeKey() {
+        // Re-poll immediately so the key updates when the modal shelf changes
+        _pollScannerState();
+    }
+
     window.openScanModal = function(roomId) {
         _scanRoomId = roomId;
         document.getElementById('scan-result').style.display = 'none';
@@ -257,6 +349,7 @@
         document.getElementById('btn-stop-scan').style.display = 'none';
         document.getElementById('cam-idle-msg').style.display = 'block';
         document.getElementById('scan-overlay').classList.add('active');
+        _updateScannerModeKey();
     };
 
     window.closeScanModal = async function() {
@@ -628,6 +721,12 @@
         el.style.display = 'block';
         if (type === 'ok') setTimeout(() => { el.style.display = 'none'; }, 5000);
     }
+
+    // Initialize scanner mode key on page load and keep it live every 3 s
+    document.addEventListener('DOMContentLoaded', function() {
+        _pollScannerState();
+    });
+    setInterval(_pollScannerState, 3000);
 </script>
 
 {% endblock %}
