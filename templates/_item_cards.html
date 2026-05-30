@@ -109,6 +109,13 @@
                         placeholder="Costco"
                         title="Items routed to the shopping list whose store matches this value"
                         style="width:100%; margin-bottom:4px;">
+                    <label style="font-size:9px; letter-spacing:.12em; color:var(--cyan); display:block; margin-top:8px; margin-bottom:3px; font-family:'Orbitron', sans-serif; text-transform:uppercase;">Relocate Asset (Within Matrix)</label>
+                    <select name="new_shelf_id" style="width:100%; margin-bottom:4px;">
+                        <option value="">-- KEEP CURRENT LOCATION --</option>
+                        {% for shelf in shelves %}
+                        <option value="{{ shelf[0] }}">MOVE TO LEVEL {{ shelf[1] }}</option>
+                        {% endfor %}
+                    </select>
                     <button type="submit" class="btn-action" style="width:100%; margin-top:4px;">COMMIT CHANGES</button>
                 </form>
 

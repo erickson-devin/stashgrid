@@ -497,13 +497,25 @@ def edit_item(item_id):
     room_id = request.form.get("room_id")
     threshold = int(request.form.get("low_stock_threshold", 0) or 0)
     preferred_store = request.form.get("preferred_store", "Costco").strip() or "Costco"
+    new_shelf_id_raw = request.form.get("new_shelf_id", "").strip()
 
     with sqlite3.connect(DB) as conn:
-        conn.execute("""
-            UPDATE inventory
-            SET name = ?, notes = ?, low_stock_threshold = ?, preferred_store = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (name, notes, threshold, preferred_store, item_id))
+        if new_shelf_id_raw.isdigit():
+            # Relocate asset: update shelf_id alongside the standard metadata fields
+            conn.execute("""
+                UPDATE inventory
+                SET name = ?, notes = ?, low_stock_threshold = ?, preferred_store = ?,
+                    shelf_id = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (name, notes, threshold, preferred_store, int(new_shelf_id_raw), item_id))
+            logger.info("Relocated item %d to shelf %s via Web HUD", item_id, new_shelf_id_raw)
+        else:
+            # No relocation requested — leave shelf_id untouched
+            conn.execute("""
+                UPDATE inventory
+                SET name = ?, notes = ?, low_stock_threshold = ?, preferred_store = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (name, notes, threshold, preferred_store, item_id))
 
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
