@@ -459,10 +459,13 @@ def inventory_hash():
 
     items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
     with sqlite3.connect(DB) as conn:
+        sl_lists = conn.execute(
+            "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY id"
+        ).fetchall()
         sl_items = conn.execute(
             "SELECT id, list_id, barcode, is_completed FROM shopping_list_items ORDER BY id"
         ).fetchall()
-    state = {"items": items, "rooms": rooms, "sl": sl_items}
+    state = {"items": items, "rooms": rooms, "sl_lists": sl_lists, "sl_items": sl_items}
     digest = hashlib.md5(json.dumps(state, default=str).encode()).hexdigest()
     return jsonify({"hash": digest})
 

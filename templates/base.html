@@ -1108,6 +1108,13 @@
                     if (activeZoomShelfId) {
                         reEstablishZoom(activeZoomShelfId);
                     }
+
+                    // If the shopping list modal is open, pull fresh data so remote
+                    // changes (checked items, new lists, deletions) appear instantly.
+                    if (document.getElementById('shopping-list-overlay').classList.contains('active')) {
+                        loadShoppingLists();
+                    }
+
                     document.getElementById('sync-text').innerText = "LIVE SYNC: ACTIVE";
                 }
                 currentHash = data.hash;
