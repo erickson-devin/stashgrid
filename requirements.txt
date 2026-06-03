@@ -14,6 +14,10 @@ Pillow>=10.0.0
 # Allows app.run(ssl_context='adhoc')
 pyOpenSSL>=24.0.0
 
+# Argon2id password hashing (winner of Password Hashing Competition 2015)
+# Memory-hard algorithm — resists GPU/ASIC cracking attacks far better than PBKDF2
+argon2-cffi>=23.1.0
+
 # Linux / Raspberry Pi only — raw HID input for the USB barcode scanner (scanner.py)
 # Do NOT install on Windows/macOS. Comment this out if deploying app.py only.
 evdev>=1.6.0; sys_platform == "linux"

@@ -14,6 +14,11 @@ RestartSec=5
 # Pass log directory to the app
 Environment=STASHGRID_LOG_DIR=/var/log/stashgrid
 
+# Secret key for Flask session cookie signing — MUST be unique per deployment.
+# Generate a strong value with: python3 -c "import secrets; print(secrets.token_hex(32))"
+# Then replace __SECRET_KEY__ below with the output before installing.
+Environment=STASHGRID_SECRET_KEY=__SECRET_KEY__
+
 # Harden the service slightly
 PrivateTmp=true
 NoNewPrivileges=true

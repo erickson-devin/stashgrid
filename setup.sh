@@ -79,11 +79,21 @@ SYSTEMD_PATH="/etc/systemd/system/stashgrid.service"
 
 if [ -f "$SERVICE_FILE" ]; then
     info "Installing web app systemd service..."
+
+    # Generate a cryptographically secure secret key for Flask session signing.
+    # A fresh key is created on every install — sessions from previous installs
+    # will be invalidated (users will need to log in again), which is intentional.
+    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    info "Generated new STASHGRID_SECRET_KEY (64-char hex)"
+    warn "Record this key if you need to restore it manually:"
+    warn "  STASHGRID_SECRET_KEY=$SECRET_KEY"
+
     # Patch the service file with the actual install paths before copying
     sed \
         -e "s|__INSTALL_DIR__|$SCRIPT_DIR|g" \
         -e "s|__VENV_DIR__|$VENV_DIR|g" \
         -e "s|__USER__|$USER|g" \
+        -e "s|__SECRET_KEY__|$SECRET_KEY|g" \
         "$SERVICE_FILE" | sudo tee "$SYSTEMD_PATH" > /dev/null
 
     sudo systemctl daemon-reload

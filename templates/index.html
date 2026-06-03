@@ -10,6 +10,17 @@
     <span style="color:var(--border)">|</span>
     <span>ROOMS CONFIG: <span style="color:var(--cyan)">ONLINE</span></span>
     <span style="color:var(--border)">|</span>
+    <span style="color:var(--dim); font-size:10px; letter-spacing:.08em;">
+        OPERATOR: <span style="color:var(--cyan); font-weight:bold;">{{ session.username | upper }}</span>
+        <span style="color:var(--border)"> // </span>
+        CLEARANCE:
+        {% if session.role == 'admin' %}
+        <span style="color:var(--magenta); font-weight:bold;">{{ session.role | upper }}</span>
+        {% else %}
+        <span style="color:var(--yellow); font-weight:bold;">{{ session.role | upper }}</span>
+        {% endif %}
+    </span>
+    <span style="color:var(--border)">|</span>
     <!-- Scanner mode key: updates live as shelf selection changes -->
     <span id="scanner-mode-key" style="
         display: inline-flex;
@@ -36,6 +47,11 @@
         <button class="btn-action" id="btn-shopping-list"
             style="font-size:11px; padding:4px 12px; letter-spacing:.08em; border-color:var(--yellow); color:var(--yellow);"
             onclick="openShoppingListModal()">&#128203; SHOPPING LISTS</button>
+        <form method="get" action="/logout" style="display:inline; margin:0;">
+            <button type="submit" class="btn-action"
+                style="font-size:11px; padding:4px 12px; letter-spacing:.08em; border-color:#ff3860; color:#ff3860;"
+                title="End session for {{ session.username }}">&#10005; TERMINATE LINK</button>
+        </form>
     </div>
 </div>
 
@@ -126,7 +142,8 @@
             </form>
         </div>
 
-        <!-- Danger Zone -->
+        <!-- Danger Zone — Admin only -->
+        {% if session.role == 'admin' %}
         <div class="edit-room-section">
             <label>&#9888; Danger Zone</label>
             <form id="delete-room-form" method="post" action=""
@@ -134,6 +151,7 @@
                 <button type="submit" class="btn-danger">&#10005; DELETE THIS ROOM</button>
             </form>
         </div>
+        {% endif %}
     </div>
 </div>
 

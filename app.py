@@ -1,4 +1,7 @@
-from flask import Flask, request, render_template, jsonify, redirect
+from flask import Flask, request, render_template, jsonify, redirect, session, url_for
+from functools import wraps
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHashError
 import sqlite3
 import hashlib
 import json
@@ -27,7 +30,21 @@ logger.addHandler(file_handler)
 logger.info("StashGrid app started with Spatial Architecture")
 
 app = Flask(__name__)
+# Secret key signs session cookies — override via env var in production
+app.secret_key = os.environ.get("STASHGRID_SECRET_KEY", "stashgrid-dev-secret-change-in-prod-!")
 DB = "inventory.db"
+
+# ── Argon2id hasher — Pi-tuned parameters ────────────────────────────────────
+# 64 MB memory cost + 3 time iterations: ~200-400 ms on Pi 4, memory-hard
+# enough to cripple GPU/ASIC offline attacks.
+_ph = PasswordHasher(
+    time_cost=3,
+    memory_cost=65536,  # 64 MB
+    parallelism=2,
+    hash_len=32,
+    salt_len=16,
+)
+SYSTEM_USER_ID = 1  # Reserved ID for hardware scanner audit entries
 
 # Ensure photo storage directory exists alongside the static folder
 PHOTOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "photos")
@@ -103,9 +120,134 @@ def init_db():
                 FOREIGN KEY(list_id) REFERENCES shopping_lists(id) ON DELETE CASCADE
             )
         """)
+        # ── Auth: users table ─────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role          TEXT NOT NULL DEFAULT 'user'
+            )
+        """)
+        # ── Auth: audit log table ─────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER,
+                action      TEXT,
+                target_type TEXT,
+                target_id   INTEGER,
+                timestamp   TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        # ── Idempotent migration: add created_by to inventory ─────────────────
+        try:
+            conn.execute("ALTER TABLE inventory ADD COLUMN created_by INTEGER")
+        except Exception:
+            pass  # Column already exists
+        # ── Seed system & admin users if the table is brand new ───────────────
+        user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        if user_count == 0:
+            # id=1 is reserved for the hardware scanner — inserted with explicit id
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, role) VALUES (1, '__system__', '', 'system')"
+            )
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+                ("admin", _ph.hash("admin"))
+            )
+            logger.info("Auth: seeded __system__ (id=1) and default admin user")
+
+
+# ── Auth helpers & decorators ────────────────────────────────────────────────
+
+def log_audit(user_id, action, target_type, target_id):
+    """Insert a row into audit_logs. Never raises — a logging failure must not
+    crash a route or corrupt a transaction."""
+    try:
+        with sqlite3.connect(DB) as conn:
+            conn.execute(
+                "INSERT INTO audit_logs (user_id, action, target_type, target_id) "
+                "VALUES (?, ?, ?, ?)",
+                (user_id, action, target_type, target_id)
+            )
+    except Exception as e:
+        logger.warning("log_audit failed: %s", e)
+
+
+def login_required(f):
+    """Decorator: redirect to /login if there is no active session."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def admin_required(f):
+    """Decorator: require an authenticated admin session.
+    Returns HTTP 403 (not a redirect) so direct API abuse fails loudly."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user_id"):
+            return redirect(url_for("login"))
+        if session.get("role") != "admin":
+            return jsonify({"error": "CLEARANCE DENIED // ADMIN REQUIRED"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Secure Terminal Gateway — authenticate and establish a session."""
+    if session.get("user_id"):
+        return redirect(url_for("index"))
+
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        with sqlite3.connect(DB) as conn:
+            row = conn.execute(
+                "SELECT id, username, password_hash, role FROM users WHERE username = ?",
+                (username,)
+            ).fetchone()
+        # System user has no password and cannot log in
+        if row and row[2] and row[3] != "system":
+            try:
+                _ph.verify(row[2], password)
+                # ✅ Credentials valid — establish session
+                session["user_id"]  = row[0]
+                session["username"] = row[1]
+                session["role"]     = row[3]
+                logger.info("Auth: user '%s' (role=%s) logged in", row[1], row[3])
+                log_audit(row[0], "login", "user", row[0])
+                return redirect(url_for("index"))
+            except (VerifyMismatchError, InvalidHashError):
+                pass  # Fall through to generic error
+        # Generic message — don't reveal whether the username exists
+        error = "AUTHENTICATION FAILED // INVALID CREDENTIALS"
+        logger.warning("Auth: failed login attempt for username '%s'", username)
+
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    """Terminate the active session and return to the login gateway."""
+    username = session.get("username", "unknown")
+    user_id  = session.get("user_id")
+    if user_id:
+        log_audit(user_id, "logout", "user", user_id)
+    session.clear()
+    logger.info("Auth: user '%s' logged out", username)
+    return redirect(url_for("login"))
 
 
 def _get_rooms_list():
+
     with sqlite3.connect(DB) as conn:
         return conn.execute("SELECT id, name, is_default FROM rooms ORDER BY name ASC").fetchall()
 
@@ -165,6 +307,7 @@ def _resolve_room_id(raw_id, rooms):
 
 
 @app.route("/")
+@login_required
 def index():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
@@ -193,6 +336,7 @@ def index():
 
 
 @app.route("/api/rooms", methods=["POST"])
+@login_required
 def create_room():
     name = request.form.get("name", "").strip()
     shelf_count = int(request.form.get("shelf_count", 3))
@@ -209,10 +353,12 @@ def create_room():
         for i in range(1, shelf_count + 1):
             conn.execute("INSERT INTO shelves (room_id, shelf_number) VALUES (?, ?)", (room_id, i))
 
+    log_audit(session["user_id"], "create_room", "room", room_id)
     return redirect(f"/?room_id={room_id}")
 
 
 @app.route("/api/rooms/<int:room_id>/set-default", methods=["POST"])
+@login_required
 def set_default_room(room_id):
     with sqlite3.connect(DB) as conn:
         conn.execute("UPDATE rooms SET is_default = 0")
@@ -221,6 +367,7 @@ def set_default_room(room_id):
 
 
 @app.route("/api/rooms/<int:room_id>/add-shelves", methods=["POST"])
+@login_required
 def add_shelves_to_room(room_id):
     """Append additional shelves to an existing room."""
     add_count = int(request.form.get("add_count", 1))
@@ -239,6 +386,7 @@ def add_shelves_to_room(room_id):
 
 
 @app.route("/api/rooms/<int:room_id>/delete", methods=["POST"])
+@admin_required
 def delete_room(room_id):
     """Delete a room, its shelves, and soft-delete all its inventory items."""
     with sqlite3.connect(DB) as conn:
@@ -251,6 +399,7 @@ def delete_room(room_id):
         # Hard-delete shelves and room (FK cascade handles shelves if pragma is on, but explicit is safer)
         conn.execute("DELETE FROM shelves WHERE room_id = ?", (room_id,))
         conn.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
+    log_audit(session["user_id"], "delete_room", "room", room_id)
     logger.info("Deleted room %d", room_id)
     return redirect("/")
 
@@ -358,7 +507,10 @@ def _auto_add_to_shopping_list(conn, barcode, name, preferred_store="Costco"):
 
 @app.route("/api/scan", methods=["POST"])
 def api_scan():
-    """Receive a barcode from the browser camera and log it to the selected shelf."""
+    """Receive a barcode from the browser camera or hardware scanner.
+    CRITICAL: This route is intentionally unprotected — the headless scanner.py
+    script hits it directly without a browser session. Actions are attributed
+    to SYSTEM_USER_ID (1) in the audit log."""
     barcode = request.form.get("barcode", "").strip().upper()
     shelf_id = request.form.get("shelf_id", type=int)
     room_id = request.form.get("room_id", type=int)
@@ -380,6 +532,7 @@ def api_scan():
                 (now, existing[0])
             )
             logger.info("Incremented barcode %s on shelf %d", barcode, shelf_id)
+            log_audit(SYSTEM_USER_ID, "scan_increment", "item", existing[0])
             return jsonify({
                 "id": existing[0],
                 "name": existing[2] or barcode,
@@ -393,9 +546,11 @@ def api_scan():
                 INSERT INTO inventory (barcode, name, room_id, shelf_id, quantity, notes, updated_at, is_active)
                 VALUES (?, ?, ?, ?, 1, '', ?, 1)
             """, (barcode, name, room_id, shelf_id, now))
+            new_id = cursor.lastrowid
             logger.info("New item scanned: %s (%s) on shelf %d", name, barcode, shelf_id)
+            log_audit(SYSTEM_USER_ID, "scan_new", "item", new_id)
             return jsonify({
-                "id": cursor.lastrowid,
+                "id": new_id,
                 "name": name,
                 "quantity": 1,
                 "photo_path": None,
@@ -404,6 +559,7 @@ def api_scan():
 
 
 @app.route("/api/items/<int:item_id>/photo", methods=["POST"])
+@login_required
 def upload_item_photo(item_id):
     """Accept a photo upload, resize it with Pillow, save to static/photos/, update DB."""
     if "photo" not in request.files or not request.files["photo"].filename:
@@ -452,6 +608,7 @@ def scanner_state():
 
 
 @app.route("/api/inventory-hash")
+@login_required
 def inventory_hash():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
@@ -471,6 +628,7 @@ def inventory_hash():
 
 
 @app.route("/api/items")
+@login_required
 def api_items():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
@@ -491,6 +649,7 @@ def api_items():
 
 
 @app.route("/edit/<int:item_id>", methods=["POST"])
+@login_required
 def edit_item(item_id):
     name = request.form.get("name", "").strip()
     notes = request.form.get("notes", "").strip()
@@ -517,10 +676,12 @@ def edit_item(item_id):
                 WHERE id = ?
             """, (name, notes, threshold, preferred_store, item_id))
 
+    log_audit(session["user_id"], "edit_item", "item", item_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
 @app.route("/remove/<int:item_id>", methods=["POST"])
+@login_required
 def remove_item_quantity(item_id):
     amount = int(request.form.get("amount", 1))
     reason = request.form.get("reason", "Removed via HUD")
@@ -556,10 +717,12 @@ def remove_item_quantity(item_id):
                 preferred_store=preferred_store or "Costco"
             )
 
+    log_audit(session["user_id"], "remove_qty", "item", item_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
 @app.route("/delete/<int:item_id>", methods=["POST"])
+@admin_required
 def delete_item(item_id):
     reason = request.form.get("reason", "Purged via terminal")
     room_id = request.form.get("room_id")
@@ -567,12 +730,14 @@ def delete_item(item_id):
     with sqlite3.connect(DB) as conn:
         conn.execute("UPDATE inventory SET quantity = 0, is_active = 0, removed_at = CURRENT_TIMESTAMP, removed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reason, item_id))
 
+    log_audit(session["user_id"], "delete_item", "item", item_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
 # ── Shopping List Routes ──────────────────────────────────────
 
 @app.route("/api/shopping-lists")
+@login_required
 def get_shopping_lists():
     with sqlite3.connect(DB) as conn:
         lists = conn.execute(
@@ -597,6 +762,7 @@ def get_shopping_lists():
 
 
 @app.route("/api/shopping-lists/create", methods=["POST"])
+@login_required
 def create_shopping_list():
     data = request.get_json(silent=True) or {}
     name = (request.form.get("name") or data.get("name", "")).strip()
@@ -616,6 +782,7 @@ def create_shopping_list():
 
 
 @app.route("/api/shopping-lists/add", methods=["POST"])
+@login_required
 def add_to_shopping_list():
     data = request.get_json(silent=True) or {}
     list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
@@ -640,6 +807,7 @@ def add_to_shopping_list():
 
 
 @app.route("/api/shopping-lists/toggle-complete/<int:item_id>", methods=["POST"])
+@login_required
 def toggle_shopping_item(item_id):
     with sqlite3.connect(DB) as conn:
         row = conn.execute(
@@ -655,6 +823,7 @@ def toggle_shopping_item(item_id):
 
 
 @app.route("/api/shopping-lists/commit", methods=["POST"])
+@login_required
 def commit_restock():
     data = request.get_json(silent=True) or {}
     list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
@@ -688,6 +857,7 @@ def commit_restock():
 
 
 @app.route("/api/shopping-lists/<int:list_id>/set-default", methods=["POST"])
+@login_required
 def set_default_shopping_list(list_id):
     with sqlite3.connect(DB) as conn:
         conn.execute("UPDATE shopping_lists SET is_default = 0")
@@ -696,6 +866,7 @@ def set_default_shopping_list(list_id):
 
 
 @app.route("/api/shopping-lists/<int:list_id>/rename", methods=["POST"])
+@login_required
 def rename_shopping_list(list_id):
     data = request.get_json(silent=True) or {}
     name = (request.form.get("name") or data.get("name", "")).strip()
@@ -711,6 +882,7 @@ def rename_shopping_list(list_id):
 
 
 @app.route("/api/shopping-lists/<int:list_id>/delete", methods=["POST"])
+@login_required
 def delete_shopping_list(list_id):
     with sqlite3.connect(DB) as conn:
         lst = conn.execute(

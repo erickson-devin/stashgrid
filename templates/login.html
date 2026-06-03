@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>StashGrid // Secure Gateway</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --cyan: #00f5ff;
+            --magenta: #ff00c8;
+            --yellow: #f5e642;
+            --bg0: #05070f;
+            --bg1: #0b0f1e;
+            --bg2: #101728;
+            --border: #1a2a4a;
+            --text: #c8d8f0;
+            --dim: #5a7090;
+            --grid-line: rgba(0, 245, 255, .04);
+            --scanline: rgba(0, 0, 0, .15);
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: var(--bg0);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Cyberpunk grid overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Scanline overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px,
+                    var(--scanline) 2px, var(--scanline) 4px);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Ambient glow pulse in background */
+        .bg-glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 245, 255, .04) 0%, transparent 70%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 0;
+            animation: pulse-glow 4s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                opacity: 0.5;
+                transform: translate(-50%, -50%) scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.08);
+            }
+        }
+
+        /* Gateway panel */
+        .gateway-panel {
+            position: relative;
+            z-index: 2;
+            width: 100%;
+            max-width: 400px;
+            margin: 20px;
+            background: var(--bg1);
+            border: 1px solid var(--border);
+            padding: 40px 36px 36px;
+            box-shadow:
+                0 0 0 1px rgba(0, 245, 255, .08),
+                0 0 40px rgba(0, 245, 255, .12),
+                0 0 80px rgba(0, 245, 255, .04);
+            animation: panel-in .5s ease-out both;
+        }
+
+        @keyframes panel-in {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* HUD corner brackets */
+        .corner {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+        }
+
+        .corner-tl {
+            top: -1px;
+            left: -1px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+        }
+
+        .corner-tr {
+            top: -1px;
+            right: -1px;
+            border-top: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+        }
+
+        .corner-bl {
+            bottom: -1px;
+            left: -1px;
+            border-bottom: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+        }
+
+        .corner-br {
+            bottom: -1px;
+            right: -1px;
+            border-bottom: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+        }
+
+        /* Glowing top accent bar */
+        .gateway-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+            box-shadow: 0 0 12px var(--cyan);
+        }
+
+        /* Logo / branding */
+        .gateway-logo {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 28px;
+        }
+
+        .gateway-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 18px;
+            font-weight: 900;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            background: linear-gradient(90deg, var(--cyan), var(--magenta));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.2;
+        }
+
+        .gateway-subtitle {
+            font-size: 9px;
+            letter-spacing: .25em;
+            color: var(--dim);
+            text-transform: uppercase;
+            margin-top: 3px;
+        }
+
+        /* Section header */
+        .section-tag {
+            font-size: 9px;
+            letter-spacing: .2em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-tag::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--cyan);
+            box-shadow: 0 0 8px var(--cyan);
+            flex-shrink: 0;
+            animation: blink 1.4s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.2;
+            }
+        }
+
+        /* Form fields */
+        .field-group {
+            margin-bottom: 16px;
+        }
+
+        .field-label {
+            display: block;
+            font-size: 9px;
+            letter-spacing: .2em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 6px;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .field-input {
+            width: 100%;
+            background: var(--bg2);
+            color: var(--cyan);
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 14px;
+            outline: none;
+            transition: border-color .2s, box-shadow .2s;
+            letter-spacing: .05em;
+        }
+
+        .field-input::placeholder {
+            color: var(--dim);
+            opacity: 0.6;
+        }
+
+        .field-input:focus {
+            border-color: var(--cyan);
+            box-shadow: 0 0 0 1px rgba(0, 245, 255, .15), 0 0 12px rgba(0, 245, 255, .08);
+        }
+
+        /* Error message */
+        .error-block {
+            background: rgba(255, 0, 200, .06);
+            border: 1px solid rgba(255, 0, 200, .3);
+            border-left: 3px solid var(--magenta);
+            padding: 10px 14px;
+            margin-bottom: 18px;
+            font-size: 11px;
+            color: var(--magenta);
+            letter-spacing: .06em;
+            animation: shake .35s ease;
+        }
+
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            20% {
+                transform: translateX(-6px);
+            }
+
+            40% {
+                transform: translateX(6px);
+            }
+
+            60% {
+                transform: translateX(-4px);
+            }
+
+            80% {
+                transform: translateX(4px);
+            }
+        }
+
+        /* Submit button */
+        .btn-login {
+            width: 100%;
+            margin-top: 8px;
+            padding: 13px;
+            background: transparent;
+            border: 1px solid var(--cyan);
+            color: var(--cyan);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .2em;
+            text-transform: uppercase;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: background .2s, box-shadow .2s, border-color .2s;
+        }
+
+        .btn-login::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(0, 245, 255, .06), transparent);
+            transform: translateX(-100%);
+            transition: transform .4s;
+        }
+
+        .btn-login:hover {
+            background: rgba(0, 245, 255, .08);
+            box-shadow: 0 0 20px rgba(0, 245, 255, .2), inset 0 0 20px rgba(0, 245, 255, .04);
+            border-color: var(--cyan);
+        }
+
+        .btn-login:hover::before {
+            transform: translateX(100%);
+        }
+
+        .btn-login:active {
+            transform: scale(.98);
+        }
+
+        /* Footer blurb */
+        .gateway-footer {
+            margin-top: 24px;
+            font-size: 9px;
+            color: var(--dim);
+            letter-spacing: .12em;
+            text-align: center;
+            line-height: 1.6;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="bg-glow"></div>
+
+    <div class="gateway-panel">
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+
+        <div class="gateway-logo">
+            <svg width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                <rect x="5" y="5" width="90" height="90" fill="none" stroke="#00f5ff" stroke-width="5" />
+                <line x1="27.5" y1="5" x2="27.5" y2="95" stroke="#1a2a4a" stroke-width="2" />
+                <line x1="50" y1="5" x2="50" y2="95" stroke="#1a2a4a" stroke-width="2" />
+                <line x1="72.5" y1="5" x2="72.5" y2="95" stroke="#1a2a4a" stroke-width="2" />
+                <line x1="5" y1="27.5" x2="95" y2="27.5" stroke="#1a2a4a" stroke-width="2" />
+                <line x1="5" y1="50" x2="95" y2="50" stroke="#1a2a4a" stroke-width="2" />
+                <line x1="5" y1="72.5" x2="95" y2="72.5" stroke="#1a2a4a" stroke-width="2" />
+                <circle cx="50" cy="50" r="4" fill="#ff00c8" />
+            </svg>
+            <div>
+                <div class="gateway-title">StashGrid</div>
+                <div class="gateway-subtitle">Secure Terminal Gateway</div>
+            </div>
+        </div>
+
+        <div class="section-tag">Authentication Protocol v1.0</div>
+
+        {% if error %}
+        <div class="error-block">&#9888; {{ error }}</div>
+        {% endif %}
+
+        <form method="post" action="/login" autocomplete="off">
+            <div class="field-group">
+                <label class="field-label" for="username">Operator ID</label>
+                <input id="username" class="field-input" type="text" name="username" placeholder="enter username..."
+                    autocomplete="username" required autofocus>
+            </div>
+
+            <div class="field-group">
+                <label class="field-label" for="password">Access Code</label>
+                <input id="password" class="field-input" type="password" name="password" placeholder="enter password..."
+                    autocomplete="current-password" required>
+            </div>
+
+            <button id="btn-login" type="submit" class="btn-login">
+                &#9654; Initiate Com-Link // Login
+            </button>
+        </form>
+
+        <div class="gateway-footer">
+            StashGrid Spatial Inventory System<br>
+            Unauthorized access is prohibited and logged
+        </div>
+    </div>
+</body>
+
+</html>
