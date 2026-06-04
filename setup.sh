@@ -151,7 +151,106 @@ else
     info "Skipping scanner service setup (you can re-run setup.sh to add it later)"
 fi
 
-# ── 7. Start services ─────────────────────────────────────────
+# ── 7. Cloudflare Tunnel (optional) ──────────────────────────
+echo ""
+read -rp $'[?] Set up the Cloudflare tunnel for public shopping list access? [y/N]: ' SETUP_CF
+SETUP_CF="${SETUP_CF:-N}"
+
+SHOPPING_URL=""
+
+if [[ "$SETUP_CF" =~ ^[Yy]$ ]]; then
+    # ── Install cloudflared if not present ──
+    if ! command -v cloudflared &>/dev/null; then
+        info "Installing cloudflared from Cloudflare's package repo..."
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+            | sudo tee /usr/share/keyrings/cloudflare-archive-keyring.gpg >/dev/null
+        echo "deb [signed-by=/usr/share/keyrings/cloudflare-archive-keyring.gpg] \
+https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
+        sudo apt-get update -qq
+        sudo apt-get install -y cloudflared || error "Failed to install cloudflared"
+        info "cloudflared installed: $(cloudflared --version)"
+    else
+        info "cloudflared already installed: $(cloudflared --version)"
+    fi
+
+    # ── Authenticate ──
+    warn "A browser window will open — log in to Cloudflare and authorize the tunnel."
+    warn "If running headless (SSH), copy the URL that appears and open it on another device."
+    echo ""
+    cloudflared tunnel login || error "Cloudflare authentication failed"
+
+    # ── Create tunnel ──
+    TUNNEL_NAME="stashgrid"
+    info "Creating tunnel '$TUNNEL_NAME'..."
+    CF_OUTPUT=$(cloudflared tunnel create "$TUNNEL_NAME" 2>&1)
+    echo "$CF_OUTPUT"
+
+    # Extract the tunnel UUID from the output line: "Created tunnel stashgrid with id <uuid>"
+    TUNNEL_ID=$(echo "$CF_OUTPUT" | grep -oP '(?<=with id )[a-f0-9\-]+' | head -1)
+    if [ -z "$TUNNEL_ID" ]; then
+        warn "Could not auto-detect tunnel ID from output above."
+        read -rp "[?] Paste the tunnel UUID manually: " TUNNEL_ID
+    fi
+    info "Tunnel ID: $TUNNEL_ID"
+
+    # ── Deploy config file ──
+    CF_CONFIG_DIR="$HOME/.cloudflared"
+    mkdir -p "$CF_CONFIG_DIR"
+
+    CF_CONFIG_DEST="$CF_CONFIG_DIR/config.yml"
+    CF_CONFIG_SRC="$SCRIPT_DIR/cloudflared_config.yml"
+
+    if [ -f "$CF_CONFIG_SRC" ]; then
+        sed \
+            -e "s|<your-tunnel-id>|$TUNNEL_ID|g" \
+            "$CF_CONFIG_SRC" > "$CF_CONFIG_DEST"
+        info "Config written to $CF_CONFIG_DEST"
+    else
+        warn "cloudflared_config.yml not found in $SCRIPT_DIR — writing minimal config"
+        cat > "$CF_CONFIG_DEST" <<EOF
+tunnel: $TUNNEL_ID
+credentials-file: $CF_CONFIG_DIR/$TUNNEL_ID.json
+
+ingress:
+  - hostname: stashgrid.devinerickson.com
+    path: "^/shop/[a-f0-9]{32}$"
+    service: http://localhost:5000
+  - hostname: stashgrid.devinerickson.com
+    path: "^/api/public/shopping-lists/[a-f0-9]{32}$"
+    service: http://localhost:5000
+  - hostname: stashgrid.devinerickson.com
+    path: "^/api/public/shopping-lists/toggle/[a-f0-9]{32}/[0-9]+$"
+    service: http://localhost:5000
+  - service: http_status:404
+EOF
+    fi
+
+    # ── DNS route ──
+    info "Creating DNS CNAME route for stashgrid.devinerickson.com..."
+    cloudflared tunnel route dns "$TUNNEL_NAME" stashgrid.devinerickson.com \
+        || warn "DNS route may already exist — continuing"
+
+    # ── Install cloudflared as a systemd service ──
+    info "Installing cloudflared as a systemd service..."
+    sudo cloudflared service install || warn "Service install may have partially failed — check manually"
+    sudo systemctl enable cloudflared
+    info "Cloudflare tunnel service installed and enabled (starts on boot)"
+
+    # ── Read the shopping token so we can print the URL ──
+    TOKEN_FILE="$SCRIPT_DIR/shopping_token.txt"
+    if [ -f "$TOKEN_FILE" ]; then
+        SHOPPING_TOKEN=$(cat "$TOKEN_FILE")
+        SHOPPING_URL="https://stashgrid.devinerickson.com/shop/$SHOPPING_TOKEN"
+        info "Public shopping list URL: $SHOPPING_URL"
+    else
+        warn "shopping_token.txt not found yet — start StashGrid once to generate it, then check the log for the URL."
+    fi
+else
+    info "Skipping Cloudflare tunnel setup (you can re-run setup.sh to add it later)"
+fi
+
+# ── 8. Start services ─────────────────────────────────────────
 echo ""
 read -rp $'[?] Start StashGrid services now? [Y/n]: ' START_NOW
 START_NOW="${START_NOW:-Y}"
@@ -183,5 +282,18 @@ echo "   Stop:    sudo systemctl stop stashgrid-scanner"
 echo "   Logs:    journalctl -u stashgrid-scanner -f"
 echo ""
 echo "   Device paths:  ls /dev/input/by-id/"
+if [[ "$SETUP_CF" =~ ^[Yy]$ ]]; then
+echo ""
+echo "   Cloudflare Tunnel"
+echo "   Start:   sudo systemctl start cloudflared"
+echo "   Stop:    sudo systemctl stop cloudflared"
+echo "   Status:  sudo systemctl status cloudflared"
+echo "   Logs:    journalctl -u cloudflared -f"
+if [ -n "$SHOPPING_URL" ]; then
+echo ""
+echo "   ★ Public Shopping List URL (bookmark this):"
+echo "   $SHOPPING_URL"
+fi
+fi
 echo "=================================================="
 echo ""

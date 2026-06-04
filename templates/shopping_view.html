@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>StashGrid // Shopping List</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#05070f">
+    <meta name="description" content="StashGrid live shopping list — check off items as you shop.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cyan:    #00f5ff;
+            --magenta: #ff00c8;
+            --yellow:  #f5e642;
+            --green:   #00ff88;
+            --bg0:     #05070f;
+            --bg1:     #0b0f1e;
+            --bg2:     #101728;
+            --border:  #1a2a4a;
+            --text:    #c8d8f0;
+            --dim:     #5a7090;
+            --grid:    rgba(0,245,255,.04);
+            --scan:    rgba(0,0,0,.15);
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            height: 100%;
+            overscroll-behavior: none;
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: var(--bg0);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Grid overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Scanline overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent, transparent 2px,
+                var(--scan) 2px, var(--scan) 4px
+            );
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* ── Header ── */
+        .sg-header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: rgba(5,7,15,.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: env(safe-area-inset-top, 0) 0 0;
+        }
+
+        .sg-header::after {
+            content: '';
+            display: block;
+            height: 1px;
+            background: linear-gradient(90deg, var(--cyan), var(--magenta), transparent);
+            box-shadow: 0 0 8px var(--cyan);
+        }
+
+        .sg-header-inner {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px 10px;
+        }
+
+        .sg-logo {
+            flex-shrink: 0;
+        }
+
+        .sg-title-block {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sg-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            background: linear-gradient(90deg, var(--cyan), var(--magenta));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sg-subtitle {
+            font-size: 9px;
+            letter-spacing: .2em;
+            color: var(--dim);
+            text-transform: uppercase;
+            margin-top: 1px;
+        }
+
+        .sg-live-badge {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 9px;
+            letter-spacing: .12em;
+            color: var(--green);
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+
+        .sg-live-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 6px var(--green);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--green); }
+            50%       { opacity: .5; box-shadow: 0 0 2px var(--green); }
+        }
+
+        /* ── Tab Bar ── */
+        .sg-tabs-wrap {
+            position: relative;
+            background: var(--bg0);
+            border-bottom: 1px solid var(--border);
+            z-index: 49;
+        }
+
+        .sg-tabs {
+            display: flex;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            padding: 0 12px;
+            gap: 2px;
+        }
+
+        .sg-tabs::-webkit-scrollbar { display: none; }
+
+        .sg-tab {
+            flex-shrink: 0;
+            padding: 10px 16px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 11px;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--dim);
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: color .2s, border-color .2s;
+            position: relative;
+        }
+
+        .sg-tab:hover {
+            color: var(--cyan);
+        }
+
+        .sg-tab.active {
+            color: var(--magenta);
+            border-bottom-color: var(--magenta);
+            text-shadow: 0 0 8px rgba(255,0,200,.5);
+        }
+
+        .sg-tab-count {
+            display: inline-block;
+            font-size: 9px;
+            padding: 1px 5px;
+            border-radius: 2px;
+            margin-left: 5px;
+            background: rgba(255,0,200,.12);
+            color: var(--magenta);
+            vertical-align: middle;
+            transition: opacity .2s;
+        }
+
+        .sg-tab:not(.active) .sg-tab-count {
+            background: rgba(90,112,144,.12);
+            color: var(--dim);
+        }
+
+        /* ── Content area ── */
+        .sg-content {
+            position: relative;
+            z-index: 2;
+            flex: 1;
+            padding: 0 0 env(safe-area-inset-bottom, 16px);
+        }
+
+        /* ── Store header in list panel ── */
+        .sg-panel {
+            display: none;
+        }
+
+        .sg-panel.active {
+            display: block;
+        }
+
+        .sg-store-header {
+            padding: 10px 16px 8px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .sg-store-name {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            letter-spacing: .15em;
+            color: var(--cyan);
+            text-transform: uppercase;
+        }
+
+        .sg-progress {
+            font-size: 10px;
+            color: var(--dim);
+            letter-spacing: .08em;
+        }
+
+        .sg-progress-bar-wrap {
+            width: 100%;
+            height: 2px;
+            background: var(--border);
+            margin-top: 6px;
+            border-radius: 1px;
+            overflow: hidden;
+        }
+
+        .sg-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--cyan), var(--green));
+            border-radius: 1px;
+            transition: width .4s ease;
+            box-shadow: 0 0 6px var(--green);
+        }
+
+        /* ── Item list ── */
+        .sg-item-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .sg-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(26,42,74,.6);
+            cursor: pointer;
+            transition: background .15s, opacity .25s;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        .sg-item:active {
+            background: rgba(0,245,255,.04);
+        }
+
+        .sg-item.done {
+            opacity: .4;
+        }
+
+        .sg-item.done .sg-item-name {
+            text-decoration: line-through;
+            color: var(--dim);
+        }
+
+        /* Custom checkbox */
+        .sg-check-ring {
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            border: 2px solid var(--border);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: border-color .2s, background .2s, box-shadow .2s;
+        }
+
+        .sg-item.done .sg-check-ring {
+            border-color: var(--green);
+            background: rgba(0,255,136,.12);
+            box-shadow: 0 0 8px rgba(0,255,136,.35);
+            color: var(--green);
+        }
+
+        .sg-check-ring::after {
+            content: '';
+            display: block;
+        }
+
+        .sg-item.done .sg-check-ring::after {
+            content: '✓';
+        }
+
+        /* Item info */
+        .sg-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sg-item-name {
+            display: block;
+            font-size: 14px;
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            line-height: 1.3;
+            transition: color .2s;
+        }
+
+        .sg-item-barcode {
+            display: block;
+            font-size: 10px;
+            color: var(--magenta);
+            letter-spacing: .08em;
+            margin-top: 2px;
+            opacity: .7;
+        }
+
+        .sg-item-qty {
+            flex-shrink: 0;
+            font-size: 16px;
+            color: var(--yellow);
+            font-weight: bold;
+            min-width: 28px;
+            text-align: right;
+        }
+
+        /* ── Empty state ── */
+        .sg-empty {
+            padding: 48px 24px;
+            text-align: center;
+            color: var(--dim);
+        }
+
+        .sg-empty-icon {
+            font-size: 36px;
+            margin-bottom: 12px;
+            opacity: .4;
+        }
+
+        .sg-empty-text {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+        }
+
+        .sg-empty-sub {
+            font-size: 11px;
+            margin-top: 6px;
+            opacity: .6;
+        }
+
+        /* ── Toast notification ── */
+        .sg-toast {
+            position: fixed;
+            bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: var(--bg1);
+            border: 1px solid var(--green);
+            color: var(--green);
+            font-size: 12px;
+            letter-spacing: .08em;
+            padding: 10px 20px;
+            box-shadow: 0 0 20px rgba(0,255,136,.2);
+            z-index: 200;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .3s, transform .3s;
+            white-space: nowrap;
+            max-width: 90vw;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sg-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .sg-toast.error {
+            border-color: var(--magenta);
+            color: var(--magenta);
+            box-shadow: 0 0 20px rgba(255,0,200,.2);
+        }
+
+        /* ── Refresh indicator ── */
+        .sg-refresh-strip {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 6px 16px;
+            font-size: 9px;
+            letter-spacing: .12em;
+            color: var(--dim);
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+            background: rgba(11,15,30,.6);
+        }
+
+        .sg-refresh-strip a {
+            color: var(--cyan);
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        /* ── Loading skeleton ── */
+        .sg-skeleton-line {
+            height: 14px;
+            background: linear-gradient(90deg, var(--bg2) 25%, rgba(0,245,255,.05) 50%, var(--bg2) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 2px;
+            margin-bottom: 8px;
+        }
+
+        @keyframes shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* ── Completed section separator ── */
+        .sg-completed-header {
+            padding: 8px 16px 6px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 9px;
+            letter-spacing: .2em;
+            color: var(--dim);
+            text-transform: uppercase;
+            border-top: 1px dashed var(--border);
+            margin-top: 4px;
+            background: rgba(0,0,0,.2);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="sg-header">
+        <div class="sg-header-inner">
+            <svg class="sg-logo" width="30" height="30" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <rect x="5" y="5" width="90" height="90" fill="none" stroke="var(--cyan)" stroke-width="5"/>
+                <line x1="27.5" y1="5" x2="27.5" y2="95" stroke="var(--border)" stroke-width="2"/>
+                <line x1="50"   y1="5" x2="50"   y2="95" stroke="var(--border)" stroke-width="2"/>
+                <line x1="72.5" y1="5" x2="72.5" y2="95" stroke="var(--border)" stroke-width="2"/>
+                <line x1="5"   y1="27.5" x2="95" y2="27.5" stroke="var(--border)" stroke-width="2"/>
+                <line x1="5"   y1="50"   x2="95" y2="50"   stroke="var(--border)" stroke-width="2"/>
+                <line x1="5"   y1="72.5" x2="95" y2="72.5" stroke="var(--border)" stroke-width="2"/>
+                <circle cx="50" cy="50" r="4" fill="var(--magenta)"/>
+            </svg>
+            <div class="sg-title-block">
+                <div class="sg-title">StashGrid</div>
+                <div class="sg-subtitle">Shopping List // Live View</div>
+            </div>
+            <div class="sg-live-badge">
+                <div class="sg-live-dot"></div>
+                <span id="live-label">LIVE</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Refresh strip -->
+    <div class="sg-refresh-strip">
+        <span>AUTO-REFRESH: 30s</span>
+        <span style="color:var(--border)">|</span>
+        <a onclick="refreshNow()" id="refresh-link">REFRESH NOW</a>
+        <span style="color:var(--border)">|</span>
+        <span id="last-updated">—</span>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="sg-tabs-wrap">
+        <div class="sg-tabs" id="tab-bar" role="tablist">
+            <!-- Rendered by JS -->
+        </div>
+    </div>
+
+    <!-- Content panels -->
+    <main class="sg-content" id="panels-container">
+        <!-- Loading state -->
+        <div id="loading-state" style="padding:24px 16px;">
+            <div class="sg-skeleton-line" style="width:60%;"></div>
+            <div class="sg-skeleton-line" style="width:80%;"></div>
+            <div class="sg-skeleton-line" style="width:50%;"></div>
+            <div class="sg-skeleton-line" style="width:75%;"></div>
+        </div>
+    </main>
+
+    <!-- Toast — data-token carries the server-side token into JS without Jinja inside a script block -->
+    <div class="sg-toast" id="toast" data-token="{{ token }}"></div>
+
+    <script>
+        const TOKEN = document.getElementById('toast').dataset.token;
+        const API_URL = `/api/public/shopping-lists/${TOKEN}`;
+        const TOGGLE_URL = (id) => `/api/public/shopping-lists/toggle/${TOKEN}/${id}`;
+        const REFRESH_INTERVAL_MS = 30000;
+
+        let _data = [];          // full lists array
+        let _activeTab = 'all'; // 'all' or list id (number)
+        let _refreshTimer = null;
+        let _pendingToggles = new Set(); // item IDs currently toggling
+
+        // ── Data fetching ──────────────────────────────────────────────────────
+
+        async function fetchLists() {
+            try {
+                const resp = await fetch(API_URL);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const json = await resp.json();
+                _data = json.lists || [];
+                return true;
+            } catch (e) {
+                console.error('Fetch failed:', e);
+                return false;
+            }
+        }
+
+        async function refreshNow() {
+            document.getElementById('live-label').textContent = 'SYNCING';
+            document.getElementById('refresh-link').textContent = 'SYNCING...';
+            const ok = await fetchLists();
+            if (ok) {
+                render();
+                const now = new Date();
+                document.getElementById('last-updated').textContent =
+                    'UPDATED ' + now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+            } else {
+                showToast('SYNC FAILED — CHECK CONNECTION', true);
+            }
+            document.getElementById('live-label').textContent = 'LIVE';
+            document.getElementById('refresh-link').textContent = 'REFRESH NOW';
+            resetTimer();
+        }
+
+        function resetTimer() {
+            if (_refreshTimer) clearInterval(_refreshTimer);
+            _refreshTimer = setInterval(refreshNow, REFRESH_INTERVAL_MS);
+        }
+
+        // ── Render ─────────────────────────────────────────────────────────────
+
+        function render() {
+            renderTabs();
+            renderPanel();
+        }
+
+        function renderTabs() {
+            const bar = document.getElementById('tab-bar');
+
+            // Build "ALL" tab — aggregate of all incomplete + complete
+            const allItems = _data.flatMap(l => l.items);
+            const allPending = allItems.filter(i => !i.is_completed).length;
+
+            const tabs = [{
+                id: 'all',
+                label: 'All Items',
+                count: allPending
+            }];
+
+            for (const list of _data) {
+                const pending = list.items.filter(i => !i.is_completed).length;
+                tabs.push({
+                    id: list.id,
+                    label: list.store_name || list.name,
+                    count: pending,
+                    listId: list.id
+                });
+            }
+
+            bar.innerHTML = tabs.map(t => `
+                <button
+                    class="sg-tab ${t.id === _activeTab ? 'active' : ''}"
+                    role="tab"
+                    aria-selected="${t.id === _activeTab}"
+                    onclick="switchTab(${typeof t.id === 'string' ? `'${t.id}'` : t.id})"
+                    id="tab-${t.id}">
+                    ${escHtml(t.label)}
+                    <span class="sg-tab-count">${t.count}</span>
+                </button>
+            `).join('');
+        }
+
+        function renderPanel() {
+            const container = document.getElementById('panels-container');
+            document.getElementById('loading-state')?.remove();
+
+            // Collect the items we care about for the active tab
+            let items = [];
+            let storeName = '';
+            let listId = null;
+
+            if (_activeTab === 'all') {
+                // Merge all lists; items keep their own list context for toggling
+                items = _data.flatMap(l => l.items.map(i => ({...i, _listName: l.store_name || l.name})));
+                storeName = 'All Stores';
+            } else {
+                const list = _data.find(l => l.id === _activeTab);
+                if (list) {
+                    items = list.items;
+                    storeName = list.store_name || list.name;
+                    listId = list.id;
+                }
+            }
+
+            const pending   = items.filter(i => !i.is_completed);
+            const completed = items.filter(i =>  i.is_completed);
+            const total     = items.length;
+            const pct       = total > 0 ? Math.round((completed.length / total) * 100) : 0;
+
+            let html = `
+                <div class="sg-store-header">
+                    <span class="sg-store-name">&#128204; ${escHtml(storeName)}</span>
+                    <span class="sg-progress">${completed.length} / ${total} checked</span>
+                    <div class="sg-progress-bar-wrap">
+                        <div class="sg-progress-bar" style="width:${pct}%"></div>
+                    </div>
+                </div>
+            `;
+
+            if (items.length === 0) {
+                html += `
+                    <div class="sg-empty">
+                        <div class="sg-empty-icon">&#128203;</div>
+                        <div class="sg-empty-text">List is empty</div>
+                        <div class="sg-empty-sub">Items added from the main app will appear here.</div>
+                    </div>`;
+            } else {
+                html += `<ul class="sg-item-list" id="item-list">`;
+
+                // Pending items first
+                for (const item of pending) {
+                    html += renderItem(item);
+                }
+
+                // Completed items with separator
+                if (completed.length > 0) {
+                    html += `<li class="sg-completed-header">&#10003; Checked off (${completed.length})</li>`;
+                    for (const item of completed) {
+                        html += renderItem(item);
+                    }
+                }
+
+                html += `</ul>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderItem(item) {
+            const isPending = _pendingToggles.has(item.id);
+            return `
+                <li class="sg-item${item.is_completed ? ' done' : ''}"
+                    id="item-row-${item.id}"
+                    onclick="toggleItem(${item.id}, this)"
+                    role="checkbox"
+                    aria-checked="${item.is_completed}"
+                    aria-label="${escHtml(item.name || item.barcode)}">
+                    <div class="sg-check-ring" id="ring-${item.id}"></div>
+                    <div class="sg-item-info">
+                        <span class="sg-item-name">${escHtml(item.name || item.barcode)}</span>
+                        ${item.barcode ? `<span class="sg-item-barcode">${escHtml(item.barcode)}</span>` : ''}
+                    </div>
+                    <span class="sg-item-qty">&times;${item.requested_qty}</span>
+                </li>`;
+        }
+
+        // ── Interactions ───────────────────────────────────────────────────────
+
+        function switchTab(id) {
+            _activeTab = id;
+            renderTabs();
+            renderPanel();
+        }
+
+        async function toggleItem(itemId, rowEl) {
+            if (_pendingToggles.has(itemId)) return; // debounce rapid taps
+            _pendingToggles.add(itemId);
+
+            // Optimistic UI update
+            const isDone = rowEl.classList.contains('done');
+            rowEl.classList.toggle('done');
+            rowEl.setAttribute('aria-checked', !isDone);
+            const ring = document.getElementById(`ring-${itemId}`);
+            if (ring) {
+                if (!isDone) {
+                    ring.style.borderColor = 'var(--green)';
+                    ring.style.background  = 'rgba(0,255,136,.12)';
+                    ring.style.boxShadow   = '0 0 8px rgba(0,255,136,.35)';
+                    ring.textContent = '✓';
+                } else {
+                    ring.style.borderColor = '';
+                    ring.style.background  = '';
+                    ring.style.boxShadow   = '';
+                    ring.textContent = '';
+                }
+            }
+
+            try {
+                const resp = await fetch(TOGGLE_URL(itemId), { method: 'POST' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+
+                // Update local data model
+                for (const list of _data) {
+                    const item = list.items.find(i => i.id === itemId);
+                    if (item) {
+                        item.is_completed = data.is_completed;
+                        break;
+                    }
+                }
+
+                // Update tab counts without full re-render
+                renderTabs();
+
+                // Re-render panel after brief delay to let the user see the checkmark
+                setTimeout(() => {
+                    renderPanel();
+                    _pendingToggles.delete(itemId);
+                }, 450);
+
+            } catch (e) {
+                // Revert optimistic update on failure
+                rowEl.classList.toggle('done');
+                if (ring) {
+                    ring.style.borderColor = '';
+                    ring.style.background  = '';
+                    ring.style.boxShadow   = '';
+                    ring.textContent = '';
+                }
+                showToast('FAILED TO SAVE — RETRYING', true);
+                _pendingToggles.delete(itemId);
+            }
+        }
+
+        // ── Utilities ──────────────────────────────────────────────────────────
+
+        function escHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g,  '&amp;')
+                .replace(/</g,  '&lt;')
+                .replace(/>/g,  '&gt;')
+                .replace(/"/g,  '&quot;')
+                .replace(/'/g,  '&#39;');
+        }
+
+        let _toastTimer = null;
+        function showToast(msg, isError = false) {
+            const el = document.getElementById('toast');
+            el.textContent = msg;
+            el.className = 'sg-toast' + (isError ? ' error' : '');
+            el.classList.add('show');
+            if (_toastTimer) clearTimeout(_toastTimer);
+            _toastTimer = setTimeout(() => { el.classList.remove('show'); }, 3000);
+        }
+
+        // ── Init ───────────────────────────────────────────────────────────────
+        (async function init() {
+            await refreshNow();
+        })();
+    </script>
+</body>
+</html>

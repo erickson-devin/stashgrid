@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify, redirect, session, url_for
+from flask import Flask, request, render_template, jsonify, redirect, session, url_for, abort
 from functools import wraps
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
@@ -8,6 +8,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import secrets
 import time
 import threading
 import subprocess
@@ -33,6 +34,22 @@ app = Flask(__name__)
 # Secret key signs session cookies — override via env var in production
 app.secret_key = os.environ.get("STASHGRID_SECRET_KEY", "stashgrid-dev-secret-change-in-prod-!")
 DB = "inventory.db"
+
+# ── Public Shopping List Token ────────────────────────────────────────────────
+# A 32-char hex token stored on disk. The public shopping URL is:
+#   https://stashgrid.devinerickson.com/shop/<token>
+# Rotate by deleting shopping_token.txt and restarting.
+SHOPPING_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shopping_token.txt")
+
+def _load_or_create_token():
+    if os.path.exists(SHOPPING_TOKEN_FILE):
+        return open(SHOPPING_TOKEN_FILE).read().strip()
+    token = secrets.token_hex(16)  # 32-char hex string
+    with open(SHOPPING_TOKEN_FILE, "w") as f:
+        f.write(token)
+    return token
+
+SHOPPING_TOKEN = _load_or_create_token()
 
 # ── Argon2id hasher — Pi-tuned parameters ────────────────────────────────────
 # 64 MB memory cost + 3 time iterations: ~200-400 ms on Pi 4, memory-hard
@@ -307,7 +324,6 @@ def _resolve_room_id(raw_id, rooms):
 
 
 @app.route("/")
-@login_required
 def index():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
@@ -336,7 +352,6 @@ def index():
 
 
 @app.route("/api/rooms", methods=["POST"])
-@login_required
 def create_room():
     name = request.form.get("name", "").strip()
     shelf_count = int(request.form.get("shelf_count", 3))
@@ -353,12 +368,11 @@ def create_room():
         for i in range(1, shelf_count + 1):
             conn.execute("INSERT INTO shelves (room_id, shelf_number) VALUES (?, ?)", (room_id, i))
 
-    log_audit(session["user_id"], "create_room", "room", room_id)
+    log_audit(session.get("user_id"), "create_room", "room", room_id)
     return redirect(f"/?room_id={room_id}")
 
 
 @app.route("/api/rooms/<int:room_id>/set-default", methods=["POST"])
-@login_required
 def set_default_room(room_id):
     with sqlite3.connect(DB) as conn:
         conn.execute("UPDATE rooms SET is_default = 0")
@@ -367,7 +381,6 @@ def set_default_room(room_id):
 
 
 @app.route("/api/rooms/<int:room_id>/add-shelves", methods=["POST"])
-@login_required
 def add_shelves_to_room(room_id):
     """Append additional shelves to an existing room."""
     add_count = int(request.form.get("add_count", 1))
@@ -386,7 +399,6 @@ def add_shelves_to_room(room_id):
 
 
 @app.route("/api/rooms/<int:room_id>/delete", methods=["POST"])
-@admin_required
 def delete_room(room_id):
     """Delete a room, its shelves, and soft-delete all its inventory items."""
     with sqlite3.connect(DB) as conn:
@@ -399,7 +411,7 @@ def delete_room(room_id):
         # Hard-delete shelves and room (FK cascade handles shelves if pragma is on, but explicit is safer)
         conn.execute("DELETE FROM shelves WHERE room_id = ?", (room_id,))
         conn.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
-    log_audit(session["user_id"], "delete_room", "room", room_id)
+    log_audit(session.get("user_id"), "delete_room", "room", room_id)
     logger.info("Deleted room %d", room_id)
     return redirect("/")
 
@@ -559,7 +571,6 @@ def api_scan():
 
 
 @app.route("/api/items/<int:item_id>/photo", methods=["POST"])
-@login_required
 def upload_item_photo(item_id):
     """Accept a photo upload, resize it with Pillow, save to static/photos/, update DB."""
     if "photo" not in request.files or not request.files["photo"].filename:
@@ -608,7 +619,6 @@ def scanner_state():
 
 
 @app.route("/api/inventory-hash")
-@login_required
 def inventory_hash():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
@@ -628,7 +638,6 @@ def inventory_hash():
 
 
 @app.route("/api/items")
-@login_required
 def api_items():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
@@ -649,7 +658,6 @@ def api_items():
 
 
 @app.route("/edit/<int:item_id>", methods=["POST"])
-@login_required
 def edit_item(item_id):
     name = request.form.get("name", "").strip()
     notes = request.form.get("notes", "").strip()
@@ -676,12 +684,11 @@ def edit_item(item_id):
                 WHERE id = ?
             """, (name, notes, threshold, preferred_store, item_id))
 
-    log_audit(session["user_id"], "edit_item", "item", item_id)
+    log_audit(session.get("user_id"), "edit_item", "item", item_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
 @app.route("/remove/<int:item_id>", methods=["POST"])
-@login_required
 def remove_item_quantity(item_id):
     amount = int(request.form.get("amount", 1))
     reason = request.form.get("reason", "Removed via HUD")
@@ -717,12 +724,11 @@ def remove_item_quantity(item_id):
                 preferred_store=preferred_store or "Costco"
             )
 
-    log_audit(session["user_id"], "remove_qty", "item", item_id)
+    log_audit(session.get("user_id"), "remove_qty", "item", item_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
 @app.route("/delete/<int:item_id>", methods=["POST"])
-@admin_required
 def delete_item(item_id):
     reason = request.form.get("reason", "Purged via terminal")
     room_id = request.form.get("room_id")
@@ -730,14 +736,13 @@ def delete_item(item_id):
     with sqlite3.connect(DB) as conn:
         conn.execute("UPDATE inventory SET quantity = 0, is_active = 0, removed_at = CURRENT_TIMESTAMP, removed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reason, item_id))
 
-    log_audit(session["user_id"], "delete_item", "item", item_id)
+    log_audit(session.get("user_id"), "delete_item", "item", item_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
 # ── Shopping List Routes ──────────────────────────────────────
 
 @app.route("/api/shopping-lists")
-@login_required
 def get_shopping_lists():
     with sqlite3.connect(DB) as conn:
         lists = conn.execute(
@@ -762,7 +767,6 @@ def get_shopping_lists():
 
 
 @app.route("/api/shopping-lists/create", methods=["POST"])
-@login_required
 def create_shopping_list():
     data = request.get_json(silent=True) or {}
     name = (request.form.get("name") or data.get("name", "")).strip()
@@ -782,7 +786,6 @@ def create_shopping_list():
 
 
 @app.route("/api/shopping-lists/add", methods=["POST"])
-@login_required
 def add_to_shopping_list():
     data = request.get_json(silent=True) or {}
     list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
@@ -807,7 +810,6 @@ def add_to_shopping_list():
 
 
 @app.route("/api/shopping-lists/toggle-complete/<int:item_id>", methods=["POST"])
-@login_required
 def toggle_shopping_item(item_id):
     with sqlite3.connect(DB) as conn:
         row = conn.execute(
@@ -823,7 +825,6 @@ def toggle_shopping_item(item_id):
 
 
 @app.route("/api/shopping-lists/commit", methods=["POST"])
-@login_required
 def commit_restock():
     data = request.get_json(silent=True) or {}
     list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
@@ -857,7 +858,6 @@ def commit_restock():
 
 
 @app.route("/api/shopping-lists/<int:list_id>/set-default", methods=["POST"])
-@login_required
 def set_default_shopping_list(list_id):
     with sqlite3.connect(DB) as conn:
         conn.execute("UPDATE shopping_lists SET is_default = 0")
@@ -866,7 +866,6 @@ def set_default_shopping_list(list_id):
 
 
 @app.route("/api/shopping-lists/<int:list_id>/rename", methods=["POST"])
-@login_required
 def rename_shopping_list(list_id):
     data = request.get_json(silent=True) or {}
     name = (request.form.get("name") or data.get("name", "")).strip()
@@ -882,7 +881,6 @@ def rename_shopping_list(list_id):
 
 
 @app.route("/api/shopping-lists/<int:list_id>/delete", methods=["POST"])
-@login_required
 def delete_shopping_list(list_id):
     with sqlite3.connect(DB) as conn:
         lst = conn.execute(
@@ -901,6 +899,74 @@ def delete_shopping_list(list_id):
 
 
 init_db()
+
+# Log the public shopping URL so you always know where to send the link
+logger.info(
+    "Public shopping list URL: https://stashgrid.devinerickson.com/shop/%s",
+    SHOPPING_TOKEN
+)
+print(f"[StashGrid] Public shopping list URL: https://stashgrid.devinerickson.com/shop/{SHOPPING_TOKEN}")
+
+
+# ── Public Shopping List Routes (token-secured, Cloudflare-exposed) ───────────
+
+def _get_shopping_lists_payload():
+    """Shared data-fetch used by both the local and public shopping list APIs."""
+    with sqlite3.connect(DB) as conn:
+        lists = conn.execute(
+            "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY is_default DESC, name ASC"
+        ).fetchall()
+        items = conn.execute(
+            "SELECT id, list_id, barcode, name, requested_qty, is_completed "
+            "FROM shopping_list_items ORDER BY is_completed ASC, id ASC"
+        ).fetchall()
+
+    lists_data = []
+    for lst in lists:
+        list_items = [
+            {"id": row[0], "barcode": row[2], "name": row[3], "requested_qty": row[4], "is_completed": row[5]}
+            for row in items if row[1] == lst[0]
+        ]
+        lists_data.append({
+            "id": lst[0], "name": lst[1], "store_name": lst[2] or "",
+            "is_default": lst[3], "items": list_items
+        })
+    return lists_data
+
+
+@app.route("/shop/<token>")
+def shopping_view(token):
+    """Public read-only shopping list view — token-secured, Cloudflare-exposed."""
+    if token != SHOPPING_TOKEN:
+        abort(404)
+    return render_template("shopping_view.html", token=token)
+
+
+@app.route("/api/public/shopping-lists/<token>")
+def public_shopping_lists(token):
+    """Public API: return shopping list data. Token-secured."""
+    if token != SHOPPING_TOKEN:
+        abort(404)
+    return jsonify({"lists": _get_shopping_lists_payload()})
+
+
+@app.route("/api/public/shopping-lists/toggle/<token>/<int:item_id>", methods=["POST"])
+def public_toggle_item(token, item_id):
+    """Public API: toggle a shopping list item's completion state. Token-secured."""
+    if token != SHOPPING_TOKEN:
+        abort(404)
+    with sqlite3.connect(DB) as conn:
+        row = conn.execute(
+            "SELECT is_completed FROM shopping_list_items WHERE id = ?", (item_id,)
+        ).fetchone()
+        if not row:
+            return jsonify({"error": "Item not found"}), 404
+        new_state = 0 if row[0] else 1
+        conn.execute(
+            "UPDATE shopping_list_items SET is_completed = ? WHERE id = ?", (new_state, item_id)
+        )
+    logger.info("Public toggle: item %d → is_completed=%d", item_id, new_state)
+    return jsonify({"ok": True, "is_completed": new_state})
 
 # ── Kiosk Display Engine ────────────────────────────────
 

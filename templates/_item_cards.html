@@ -128,7 +128,6 @@
                             style="width:100%; border: 1px solid var(--yellow); color:var(--yellow); background:transparent; cursor:pointer; padding:6px 0; font-family:inherit; font-size:11px;">DECREMENT
                             1</button>
                     </form>
-                    {% if session.role == 'admin' %}
                     <form method="post" action="/delete/{{ item[0] }}" style="flex:1;"
                         onsubmit="return confirm('Purge item entry completely?');">
                         <input type="hidden" name="room_id" value="{{ room_info[0] }}">
@@ -136,7 +135,6 @@
                             style="width:100%; border: 1px solid var(--magenta); color:var(--magenta); background:transparent; cursor:pointer; padding:6px 0; font-family:inherit; font-size:11px;">PURGE
                             ENTRY</button>
                     </form>
-                    {% endif %}
                 </div>
             </div>
         </div>
