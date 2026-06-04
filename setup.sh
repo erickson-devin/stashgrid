@@ -161,14 +161,13 @@ SHOPPING_URL=""
 if [[ "$SETUP_CF" =~ ^[Yy]$ ]]; then
     # ── Install cloudflared if not present ──
     if ! command -v cloudflared &>/dev/null; then
-        info "Installing cloudflared from Cloudflare's package repo..."
-        curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
-            | sudo tee /usr/share/keyrings/cloudflare-archive-keyring.gpg >/dev/null
-        echo "deb [signed-by=/usr/share/keyrings/cloudflare-archive-keyring.gpg] \
-https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" \
+        info "Installing cloudflared via Cloudflare's official apt repo..."
+        sudo mkdir -p --mode=0755 /usr/share/keyrings
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg \
+            | sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' \
             | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
-        sudo apt-get update -qq
-        sudo apt-get install -y cloudflared || error "Failed to install cloudflared"
+        sudo apt-get update && sudo apt-get install -y cloudflared || error "Failed to install cloudflared"
         info "cloudflared installed: $(cloudflared --version)"
     else
         info "cloudflared already installed: $(cloudflared --version)"
