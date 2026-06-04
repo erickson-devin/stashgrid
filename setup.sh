@@ -203,6 +203,7 @@ if [[ "$SETUP_CF" =~ ^[Yy]$ ]]; then
     if [ -f "$CF_CONFIG_SRC" ]; then
         sed \
             -e "s|<your-tunnel-id>|$TUNNEL_ID|g" \
+            -e "s|/home/pi/|$HOME/|g" \
             "$CF_CONFIG_SRC" > "$CF_CONFIG_DEST"
         info "Config written to $CF_CONFIG_DEST"
     else
@@ -225,6 +226,12 @@ ingress:
 EOF
     fi
 
+    # ── Copy config to system-wide location so 'sudo cloudflared service install' finds it ──
+    # cloudflared service install runs as root and searches /etc/cloudflared/ rather than ~/.cloudflared/
+    sudo mkdir -p /etc/cloudflared
+    sudo cp "$CF_CONFIG_DEST" /etc/cloudflared/config.yml
+    info "Config also deployed to /etc/cloudflared/config.yml (required for system service)"
+
     # ── DNS route ──
     info "Creating DNS CNAME route for stashgrid.devinerickson.com..."
     cloudflared tunnel route dns "$TUNNEL_NAME" stashgrid.devinerickson.com \
@@ -232,9 +239,10 @@ EOF
 
     # ── Install cloudflared as a systemd service ──
     info "Installing cloudflared as a systemd service..."
-    sudo cloudflared service install || warn "Service install may have partially failed — check manually"
+    sudo cloudflared service install || error "Service install failed — check output above"
     sudo systemctl enable cloudflared
-    info "Cloudflare tunnel service installed and enabled (starts on boot)"
+    sudo systemctl start cloudflared
+    info "Cloudflare tunnel service installed, enabled, and started"
 
     # ── Read the shopping token so we can print the URL ──
     TOKEN_FILE="$SCRIPT_DIR/shopping_token.txt"

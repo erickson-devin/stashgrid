@@ -968,6 +968,60 @@ def public_toggle_item(token, item_id):
     logger.info("Public toggle: item %d → is_completed=%d", item_id, new_state)
     return jsonify({"ok": True, "is_completed": new_state})
 
+
+@app.route("/api/public/shopping-lists/create/<token>", methods=["POST"])
+def public_create_list(token):
+    """Public API: create a new shopping list. Token-secured."""
+    if token != SHOPPING_TOKEN:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    name = (request.form.get("name") or data.get("name", "")).strip()
+    store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
+    if not name:
+        return jsonify({"error": "List name is required"}), 400
+    with sqlite3.connect(DB) as conn:
+        existing_count = conn.execute("SELECT COUNT(*) FROM shopping_lists").fetchone()[0]
+        is_default = 1 if existing_count == 0 else 0
+        cursor = conn.execute(
+            "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, ?)",
+            (name, store_name, is_default)
+        )
+        list_id = cursor.lastrowid
+    logger.info("Public created shopping list '%s' (id=%d)", name, list_id)
+    return jsonify({"ok": True, "list_id": list_id})
+
+
+@app.route("/api/public/shopping-lists/add/<token>", methods=["POST"])
+def public_add_item(token):
+    """Public API: add an item to a shopping list. Token-secured."""
+    if token != SHOPPING_TOKEN:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
+    name = (request.form.get("name") or data.get("name", "")).strip()
+    barcode = (request.form.get("barcode") or data.get("barcode", "")).strip().upper()
+    qty = int(request.form.get("qty") or data.get("qty") or 1)
+    if not list_id or not name:
+        return jsonify({"error": "list_id and name are required"}), 400
+    # Use barcode if provided, otherwise generate a placeholder
+    effective_barcode = barcode if barcode else f"MANUAL-{list_id}-{int(datetime.now().timestamp())}"
+    with sqlite3.connect(DB) as conn:
+        # Verify list exists
+        if not conn.execute("SELECT id FROM shopping_lists WHERE id = ?", (list_id,)).fetchone():
+            return jsonify({"error": "List not found"}), 404
+        existing = conn.execute(
+            "SELECT id FROM shopping_list_items WHERE list_id = ? AND LOWER(name) = LOWER(?) AND is_completed = 0",
+            (list_id, name)
+        ).fetchone()
+        if existing:
+            return jsonify({"ok": True, "already_exists": True})
+        conn.execute(
+            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) VALUES (?, ?, ?, ?, 0)",
+            (list_id, effective_barcode, name, qty)
+        )
+    logger.info("Public added item '%s' to list %d", name, list_id)
+    return jsonify({"ok": True, "already_exists": False})
+
 # ── Kiosk Display Engine ────────────────────────────────
 
 def _detect_display():

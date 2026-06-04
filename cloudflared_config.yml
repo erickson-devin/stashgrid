@@ -29,24 +29,48 @@
 tunnel: <your-tunnel-id>
 credentials-file: /home/pi/.cloudflared/<your-tunnel-id>.json
 
+# ── Origin protocol ─────────────────────────────────────────────────────────────
+# StashGrid tries to run on HTTPS (self-signed cert via pyOpenSSL) and falls back
+# to HTTP if pyOpenSSL is not installed.
+#
+# If Flask is on HTTPS (default): keep the https:// URLs and noTLSVerify: true below.
+# If Flask is on HTTP (fallback):  change https:// → http:// and remove noTLSVerify.
+#
+# Check which is active on the Pi:
+#   sudo journalctl -u stashgrid -n 20 --no-pager | grep -i 'running\|ssl'
+originRequest:
+  noTLSVerify: true   # required when Flask uses a self-signed cert
+
 ingress:
   # ── Public shopping list page ───────────────────────────────────────────────
   # Allows: /shop/<32-char-hex-token>
   - hostname: stashgrid.devinerickson.com
     path: "^/shop/[a-f0-9]{32}$"
-    service: http://localhost:5000
+    service: https://localhost:5000
 
   # ── Public shopping list data API (read) ────────────────────────────────────
   # Allows: /api/public/shopping-lists/<token>
   - hostname: stashgrid.devinerickson.com
     path: "^/api/public/shopping-lists/[a-f0-9]{32}$"
-    service: http://localhost:5000
+    service: https://localhost:5000
 
   # ── Public toggle API (check off items at the store) ────────────────────────
   # Allows: /api/public/shopping-lists/toggle/<token>/<item-id>
   - hostname: stashgrid.devinerickson.com
     path: "^/api/public/shopping-lists/toggle/[a-f0-9]{32}/[0-9]+$"
-    service: http://localhost:5000
+    service: https://localhost:5000
+
+  # ── Public create-list API ────────────────────────────────────────────────────
+  # Allows: POST /api/public/shopping-lists/create/<token>
+  - hostname: stashgrid.devinerickson.com
+    path: "^/api/public/shopping-lists/create/[a-f0-9]{32}$"
+    service: https://localhost:5000
+
+  # ── Public add-item API ───────────────────────────────────────────────────────
+  # Allows: POST /api/public/shopping-lists/add/<token>
+  - hostname: stashgrid.devinerickson.com
+    path: "^/api/public/shopping-lists/add/[a-f0-9]{32}$"
+    service: https://localhost:5000
 
   # ── Block everything else ────────────────────────────────────────────────────
   # Any request to stashgrid.devinerickson.com that doesn't match above

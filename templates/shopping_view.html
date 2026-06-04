@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <title>StashGrid // Shopping List</title>
@@ -9,7 +9,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
-        :root {
+        :root,
+        [data-theme="dark"] {
             --cyan:    #00f5ff;
             --magenta: #ff00c8;
             --yellow:  #f5e642;
@@ -22,12 +23,32 @@
             --dim:     #5a7090;
             --grid:    rgba(0,245,255,.04);
             --scan:    rgba(0,0,0,.15);
+            --sheet-bg: #0b0f1e;
+            --input-bg: #101728;
+        }
+
+        [data-theme="light"] {
+            --cyan:    #0077aa;
+            --magenta: #cc0077;
+            --yellow:  #b07800;
+            --green:   #00995c;
+            --bg0:     #eef2f7;
+            --bg1:     #f8fafc;
+            --bg2:     #e4eaf3;
+            --border:  #c0cfe6;
+            --text:    #1a2a45;
+            --dim:     #5a7090;
+            --grid:    rgba(0,100,180,.05);
+            --scan:    rgba(0,0,0,.03);
+            --sheet-bg: #f8fafc;
+            --input-bg: #eef2f7;
         }
 
         *, *::before, *::after {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+            transition: background-color .25s, color .25s, border-color .25s;
         }
 
         html, body {
@@ -47,7 +68,7 @@
         }
 
         /* Grid overlay */
-        body::before {
+        [data-theme="dark"] body::before {
             content: '';
             position: fixed;
             inset: 0;
@@ -59,8 +80,8 @@
             z-index: 0;
         }
 
-        /* Scanline overlay */
-        body::after {
+        /* Scanline overlay — dark only */
+        [data-theme="dark"] body::after {
             content: '';
             position: fixed;
             inset: 0;
@@ -78,12 +99,15 @@
             position: sticky;
             top: 0;
             z-index: 50;
-            background: rgba(5,7,15,.95);
+            background: var(--bg0);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-bottom: 1px solid var(--border);
             padding: env(safe-area-inset-top, 0) 0 0;
+            transition: background .25s;
         }
+
+        [data-theme="dark"] .sg-header { background: rgba(5,7,15,.95); }
 
         .sg-header::after {
             content: '';
@@ -100,14 +124,9 @@
             padding: 12px 16px 10px;
         }
 
-        .sg-logo {
-            flex-shrink: 0;
-        }
+        .sg-logo { flex-shrink: 0; }
 
-        .sg-title-block {
-            flex: 1;
-            min-width: 0;
-        }
+        .sg-title-block { flex: 1; min-width: 0; }
 
         .sg-title {
             font-family: 'Orbitron', sans-serif;
@@ -132,6 +151,13 @@
             margin-top: 1px;
         }
 
+        .sg-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
         .sg-live-badge {
             display: flex;
             align-items: center;
@@ -140,7 +166,6 @@
             letter-spacing: .12em;
             color: var(--green);
             text-transform: uppercase;
-            flex-shrink: 0;
         }
 
         .sg-live-dot {
@@ -157,12 +182,32 @@
             50%       { opacity: .5; box-shadow: 0 0 2px var(--green); }
         }
 
+        /* Theme toggle */
+        .sg-theme-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--bg1);
+            color: var(--cyan);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            flex-shrink: 0;
+            transition: background .2s, border-color .2s, transform .2s;
+        }
+
+        .sg-theme-btn:active { transform: scale(.9); }
+
         /* ── Tab Bar ── */
         .sg-tabs-wrap {
             position: relative;
             background: var(--bg0);
             border-bottom: 1px solid var(--border);
             z-index: 49;
+            transition: background .25s;
         }
 
         .sg-tabs {
@@ -190,12 +235,9 @@
             cursor: pointer;
             white-space: nowrap;
             transition: color .2s, border-color .2s;
-            position: relative;
         }
 
-        .sg-tab:hover {
-            color: var(--cyan);
-        }
+        .sg-tab:hover { color: var(--cyan); }
 
         .sg-tab.active {
             color: var(--magenta);
@@ -220,23 +262,40 @@
             color: var(--dim);
         }
 
+        /* ── Refresh strip ── */
+        .sg-refresh-strip {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 6px 16px;
+            font-size: 9px;
+            letter-spacing: .12em;
+            color: var(--dim);
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg1);
+            transition: background .25s;
+        }
+
+        .sg-refresh-strip a {
+            color: var(--cyan);
+            text-decoration: none;
+            cursor: pointer;
+        }
+
         /* ── Content area ── */
         .sg-content {
             position: relative;
             z-index: 2;
             flex: 1;
-            padding: 0 0 env(safe-area-inset-bottom, 16px);
+            /* bottom padding accounts for the FAB bar */
+            padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
         }
 
-        /* ── Store header in list panel ── */
-        .sg-panel {
-            display: none;
-        }
-
-        .sg-panel.active {
-            display: block;
-        }
-
+        /* ── Store header ── */
         .sg-store-header {
             padding: 10px 16px 8px;
             border-bottom: 1px solid var(--border);
@@ -255,11 +314,7 @@
             text-transform: uppercase;
         }
 
-        .sg-progress {
-            font-size: 10px;
-            color: var(--dim);
-            letter-spacing: .08em;
-        }
+        .sg-progress { font-size: 10px; color: var(--dim); letter-spacing: .08em; }
 
         .sg-progress-bar-wrap {
             width: 100%;
@@ -279,11 +334,7 @@
         }
 
         /* ── Item list ── */
-        .sg-item-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
+        .sg-item-list { list-style: none; padding: 0; margin: 0; }
 
         .sg-item {
             display: flex;
@@ -297,20 +348,14 @@
             user-select: none;
         }
 
-        .sg-item:active {
-            background: rgba(0,245,255,.04);
-        }
-
-        .sg-item.done {
-            opacity: .4;
-        }
+        .sg-item:active { background: rgba(0,245,255,.04); }
+        .sg-item.done { opacity: .4; }
 
         .sg-item.done .sg-item-name {
             text-decoration: line-through;
             color: var(--dim);
         }
 
-        /* Custom checkbox */
         .sg-check-ring {
             flex-shrink: 0;
             width: 28px;
@@ -331,20 +376,9 @@
             color: var(--green);
         }
 
-        .sg-check-ring::after {
-            content: '';
-            display: block;
-        }
+        .sg-item.done .sg-check-ring::after { content: '✓'; }
 
-        .sg-item.done .sg-check-ring::after {
-            content: '✓';
-        }
-
-        /* Item info */
-        .sg-item-info {
-            flex: 1;
-            min-width: 0;
-        }
+        .sg-item-info { flex: 1; min-width: 0; }
 
         .sg-item-name {
             display: block;
@@ -382,11 +416,7 @@
             color: var(--dim);
         }
 
-        .sg-empty-icon {
-            font-size: 36px;
-            margin-bottom: 12px;
-            opacity: .4;
-        }
+        .sg-empty-icon { font-size: 36px; margin-bottom: 12px; opacity: .4; }
 
         .sg-empty-text {
             font-family: 'Orbitron', sans-serif;
@@ -395,16 +425,253 @@
             text-transform: uppercase;
         }
 
-        .sg-empty-sub {
-            font-size: 11px;
-            margin-top: 6px;
-            opacity: .6;
+        .sg-empty-sub { font-size: 11px; margin-top: 6px; opacity: .6; }
+
+        /* ── Completed section separator ── */
+        .sg-completed-header {
+            padding: 8px 16px 6px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 9px;
+            letter-spacing: .2em;
+            color: var(--dim);
+            text-transform: uppercase;
+            border-top: 1px dashed var(--border);
+            margin-top: 4px;
+            background: rgba(0,0,0,.1);
         }
 
-        /* ── Toast notification ── */
+        /* ── Loading skeleton ── */
+        .sg-skeleton-line {
+            height: 14px;
+            background: linear-gradient(90deg, var(--bg2) 25%, rgba(0,245,255,.05) 50%, var(--bg2) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 2px;
+            margin-bottom: 8px;
+        }
+
+        @keyframes shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* ── Bottom FAB bar ── */
+        .sg-fab-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 60;
+            display: flex;
+            gap: 10px;
+            padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+            background: var(--bg1);
+            border-top: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            transition: background .25s;
+        }
+
+        [data-theme="dark"] .sg-fab-bar { background: rgba(11,15,30,.96); }
+
+        .sg-fab {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 13px 12px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            border: 1px solid;
+            background: transparent;
+            cursor: pointer;
+            transition: background .2s, box-shadow .2s, transform .15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .sg-fab:active { transform: scale(.97); }
+
+        .sg-fab-add-item {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+
+        .sg-fab-add-item:hover, .sg-fab-add-item:active {
+            background: rgba(0,245,255,.08);
+            box-shadow: 0 0 16px rgba(0,245,255,.2);
+        }
+
+        .sg-fab-new-list {
+            border-color: var(--magenta);
+            color: var(--magenta);
+        }
+
+        .sg-fab-new-list:hover, .sg-fab-new-list:active {
+            background: rgba(255,0,200,.08);
+            box-shadow: 0 0 16px rgba(255,0,200,.2);
+        }
+
+        /* ── Bottom sheet ── */
+        .sg-sheet-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.6);
+            z-index: 70;
+            display: none;
+            align-items: flex-end;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .sg-sheet-overlay.open { display: flex; }
+
+        .sg-sheet {
+            width: 100%;
+            background: var(--sheet-bg);
+            border-top: 2px solid var(--cyan);
+            border-radius: 16px 16px 0 0;
+            padding: 0 0 env(safe-area-inset-bottom, 16px);
+            box-shadow: 0 -8px 40px rgba(0,245,255,.15);
+            transform: translateY(100%);
+            transition: transform .3s cubic-bezier(.32,.72,0,1), background .25s;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+
+        .sg-sheet-overlay.open .sg-sheet {
+            transform: translateY(0);
+        }
+
+        .sg-sheet-handle {
+            width: 36px;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            margin: 10px auto 0;
+        }
+
+        .sg-sheet-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sg-sheet-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+        }
+
+        .sg-sheet-close {
+            background: transparent;
+            border: 1px solid var(--dim);
+            color: var(--dim);
+            font-size: 11px;
+            padding: 3px 10px;
+            cursor: pointer;
+            font-family: 'Share Tech Mono', monospace;
+            transition: border-color .2s, color .2s;
+        }
+
+        .sg-sheet-close:hover { border-color: var(--magenta); color: var(--magenta); }
+
+        .sg-sheet-body { padding: 20px; }
+
+        /* Form elements inside sheets */
+        .sg-field { margin-bottom: 14px; }
+
+        .sg-field label {
+            display: block;
+            font-size: 9px;
+            letter-spacing: .18em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 5px;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .sg-field input,
+        .sg-field select {
+            width: 100%;
+            background: var(--input-bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 11px 12px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 14px;
+            outline: none;
+            transition: border-color .2s, background .25s;
+            border-radius: 2px;
+            -webkit-appearance: none;
+        }
+
+        .sg-field input:focus,
+        .sg-field select:focus { border-color: var(--cyan); }
+
+        .sg-field-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .sg-field-row .sg-field { flex: 1; }
+
+        .sg-submit-btn {
+            width: 100%;
+            padding: 14px;
+            background: transparent;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: background .2s, box-shadow .2s;
+            margin-top: 4px;
+        }
+
+        .sg-submit-btn-cyan {
+            border: 2px solid var(--cyan);
+            color: var(--cyan);
+        }
+
+        .sg-submit-btn-cyan:hover {
+            background: rgba(0,245,255,.08);
+            box-shadow: 0 0 20px rgba(0,245,255,.2);
+        }
+
+        .sg-submit-btn-magenta {
+            border: 2px solid var(--magenta);
+            color: var(--magenta);
+        }
+
+        .sg-submit-btn-magenta:hover {
+            background: rgba(255,0,200,.08);
+            box-shadow: 0 0 20px rgba(255,0,200,.2);
+        }
+
+        .sg-sheet-status {
+            font-size: 11px;
+            padding: 9px 12px;
+            margin-bottom: 12px;
+            border-radius: 2px;
+            display: none;
+            line-height: 1.4;
+        }
+
+        .sg-sheet-status.ok { color: var(--green); background: rgba(0,255,136,.06); border: 1px solid rgba(0,255,136,.3); }
+        .sg-sheet-status.error { color: var(--magenta); background: rgba(255,0,200,.06); border: 1px solid rgba(255,0,200,.3); }
+
+        /* ── Toast ── */
         .sg-toast {
             position: fixed;
-            bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+            bottom: calc(88px + env(safe-area-inset-bottom, 0px));
             left: 50%;
             transform: translateX(-50%) translateY(20px);
             background: var(--bg1);
@@ -424,67 +691,8 @@
             text-overflow: ellipsis;
         }
 
-        .sg-toast.show {
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
-        }
-
-        .sg-toast.error {
-            border-color: var(--magenta);
-            color: var(--magenta);
-            box-shadow: 0 0 20px rgba(255,0,200,.2);
-        }
-
-        /* ── Refresh indicator ── */
-        .sg-refresh-strip {
-            position: relative;
-            z-index: 2;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 6px 16px;
-            font-size: 9px;
-            letter-spacing: .12em;
-            color: var(--dim);
-            text-transform: uppercase;
-            border-bottom: 1px solid var(--border);
-            background: rgba(11,15,30,.6);
-        }
-
-        .sg-refresh-strip a {
-            color: var(--cyan);
-            text-decoration: none;
-            cursor: pointer;
-        }
-
-        /* ── Loading skeleton ── */
-        .sg-skeleton-line {
-            height: 14px;
-            background: linear-gradient(90deg, var(--bg2) 25%, rgba(0,245,255,.05) 50%, var(--bg2) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 2px;
-            margin-bottom: 8px;
-        }
-
-        @keyframes shimmer {
-            0%   { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-
-        /* ── Completed section separator ── */
-        .sg-completed-header {
-            padding: 8px 16px 6px;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 9px;
-            letter-spacing: .2em;
-            color: var(--dim);
-            text-transform: uppercase;
-            border-top: 1px dashed var(--border);
-            margin-top: 4px;
-            background: rgba(0,0,0,.2);
-        }
+        .sg-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .sg-toast.error { border-color: var(--magenta); color: var(--magenta); box-shadow: 0 0 20px rgba(255,0,200,.2); }
     </style>
 </head>
 <body>
@@ -506,9 +714,12 @@
                 <div class="sg-title">StashGrid</div>
                 <div class="sg-subtitle">Shopping List // Live View</div>
             </div>
-            <div class="sg-live-badge">
-                <div class="sg-live-dot"></div>
-                <span id="live-label">LIVE</span>
+            <div class="sg-header-actions">
+                <div class="sg-live-badge">
+                    <div class="sg-live-dot"></div>
+                    <span id="live-label">LIVE</span>
+                </div>
+                <button class="sg-theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">☀</button>
             </div>
         </div>
     </header>
@@ -524,14 +735,11 @@
 
     <!-- Tab bar -->
     <div class="sg-tabs-wrap">
-        <div class="sg-tabs" id="tab-bar" role="tablist">
-            <!-- Rendered by JS -->
-        </div>
+        <div class="sg-tabs" id="tab-bar" role="tablist"></div>
     </div>
 
     <!-- Content panels -->
     <main class="sg-content" id="panels-container">
-        <!-- Loading state -->
         <div id="loading-state" style="padding:24px 16px;">
             <div class="sg-skeleton-line" style="width:60%;"></div>
             <div class="sg-skeleton-line" style="width:80%;"></div>
@@ -540,19 +748,107 @@
         </div>
     </main>
 
+    <!-- Bottom FAB bar -->
+    <div class="sg-fab-bar">
+        <button class="sg-fab sg-fab-add-item" onclick="openAddItemSheet()">
+            &#43; ADD ITEM
+        </button>
+        <button class="sg-fab sg-fab-new-list" onclick="openNewListSheet()">
+            &#9776; NEW LIST
+        </button>
+    </div>
+
+    <!-- Add Item Sheet -->
+    <div class="sg-sheet-overlay" id="add-item-overlay" onclick="sheetOverlayClick(event, 'add-item-overlay')">
+        <div class="sg-sheet">
+            <div class="sg-sheet-handle"></div>
+            <div class="sg-sheet-header">
+                <span class="sg-sheet-title" style="color:var(--cyan)">&#43; Add Item to List</span>
+                <button class="sg-sheet-close" onclick="closeSheet('add-item-overlay')">&#10005; CLOSE</button>
+            </div>
+            <div class="sg-sheet-body">
+                <div class="sg-sheet-status" id="add-item-status"></div>
+                <div class="sg-field">
+                    <label>Shopping List</label>
+                    <select id="add-item-list-id"></select>
+                </div>
+                <div class="sg-field">
+                    <label>Item Name *</label>
+                    <input type="text" id="add-item-name" placeholder="e.g. Almond Milk" autocomplete="off">
+                </div>
+                <div class="sg-field-row">
+                    <div class="sg-field">
+                        <label>Barcode (optional)</label>
+                        <input type="text" id="add-item-barcode" placeholder="UPC / EAN" inputmode="numeric">
+                    </div>
+                    <div class="sg-field" style="max-width:90px;">
+                        <label>Qty</label>
+                        <input type="number" id="add-item-qty" value="1" min="1" inputmode="numeric">
+                    </div>
+                </div>
+                <button class="sg-submit-btn sg-submit-btn-cyan" onclick="submitAddItem()">
+                    &#43; ADD TO LIST
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New List Sheet -->
+    <div class="sg-sheet-overlay" id="new-list-overlay" onclick="sheetOverlayClick(event, 'new-list-overlay')">
+        <div class="sg-sheet" style="border-top-color: var(--magenta); box-shadow: 0 -8px 40px rgba(255,0,200,.15);">
+            <div class="sg-sheet-handle"></div>
+            <div class="sg-sheet-header">
+                <span class="sg-sheet-title" style="color:var(--magenta)">&#9776; Create New List</span>
+                <button class="sg-sheet-close" onclick="closeSheet('new-list-overlay')">&#10005; CLOSE</button>
+            </div>
+            <div class="sg-sheet-body">
+                <div class="sg-sheet-status" id="new-list-status"></div>
+                <div class="sg-field">
+                    <label>List Name *</label>
+                    <input type="text" id="new-list-name" placeholder="e.g. Weekly Run" autocomplete="off">
+                </div>
+                <div class="sg-field">
+                    <label>Store Name (optional)</label>
+                    <input type="text" id="new-list-store" placeholder="e.g. Costco" autocomplete="off">
+                </div>
+                <button class="sg-submit-btn sg-submit-btn-magenta" onclick="submitNewList()">
+                    CREATE LIST
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast — data-token carries the server-side token into JS without Jinja inside a script block -->
     <div class="sg-toast" id="toast" data-token="{{ token }}"></div>
 
     <script>
         const TOKEN = document.getElementById('toast').dataset.token;
-        const API_URL = `/api/public/shopping-lists/${TOKEN}`;
-        const TOGGLE_URL = (id) => `/api/public/shopping-lists/toggle/${TOKEN}/${id}`;
+        const API_URL        = `/api/public/shopping-lists/${TOKEN}`;
+        const TOGGLE_URL     = (id) => `/api/public/shopping-lists/toggle/${TOKEN}/${id}`;
+        const ADD_ITEM_URL   = `/api/public/shopping-lists/add/${TOKEN}`;
+        const CREATE_LIST_URL = `/api/public/shopping-lists/create/${TOKEN}`;
         const REFRESH_INTERVAL_MS = 30000;
 
-        let _data = [];          // full lists array
-        let _activeTab = 'all'; // 'all' or list id (number)
+        let _data = [];
+        let _activeTab = 'all';
         let _refreshTimer = null;
-        let _pendingToggles = new Set(); // item IDs currently toggling
+        let _pendingToggles = new Set();
+
+        // ── Theme ──────────────────────────────────────────────────────────────
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            document.getElementById('theme-btn').textContent = theme === 'dark' ? '☀' : '🌙';
+            localStorage.setItem('sgTheme', theme);
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        }
+
+        // Apply saved theme on load
+        applyTheme(localStorage.getItem('sgTheme') || 'dark');
 
         // ── Data fetching ──────────────────────────────────────────────────────
 
@@ -593,31 +889,19 @@
 
         // ── Render ─────────────────────────────────────────────────────────────
 
-        function render() {
-            renderTabs();
-            renderPanel();
-        }
+        function render() { renderTabs(); renderPanel(); }
 
         function renderTabs() {
             const bar = document.getElementById('tab-bar');
-
-            // Build "ALL" tab — aggregate of all incomplete + complete
             const allItems = _data.flatMap(l => l.items);
             const allPending = allItems.filter(i => !i.is_completed).length;
 
-            const tabs = [{
-                id: 'all',
-                label: 'All Items',
-                count: allPending
-            }];
-
+            const tabs = [{ id: 'all', label: 'All Items', count: allPending }];
             for (const list of _data) {
-                const pending = list.items.filter(i => !i.is_completed).length;
                 tabs.push({
                     id: list.id,
                     label: list.store_name || list.name,
-                    count: pending,
-                    listId: list.id
+                    count: list.items.filter(i => !i.is_completed).length
                 });
             }
 
@@ -630,30 +914,21 @@
                     id="tab-${t.id}">
                     ${escHtml(t.label)}
                     <span class="sg-tab-count">${t.count}</span>
-                </button>
-            `).join('');
+                </button>`).join('');
         }
 
         function renderPanel() {
             const container = document.getElementById('panels-container');
             document.getElementById('loading-state')?.remove();
 
-            // Collect the items we care about for the active tab
-            let items = [];
-            let storeName = '';
-            let listId = null;
+            let items = [], storeName = '';
 
             if (_activeTab === 'all') {
-                // Merge all lists; items keep their own list context for toggling
-                items = _data.flatMap(l => l.items.map(i => ({...i, _listName: l.store_name || l.name})));
+                items = _data.flatMap(l => l.items);
                 storeName = 'All Stores';
             } else {
                 const list = _data.find(l => l.id === _activeTab);
-                if (list) {
-                    items = list.items;
-                    storeName = list.store_name || list.name;
-                    listId = list.id;
-                }
+                if (list) { items = list.items; storeName = list.store_name || list.name; }
             }
 
             const pending   = items.filter(i => !i.is_completed);
@@ -668,32 +943,22 @@
                     <div class="sg-progress-bar-wrap">
                         <div class="sg-progress-bar" style="width:${pct}%"></div>
                     </div>
-                </div>
-            `;
+                </div>`;
 
             if (items.length === 0) {
                 html += `
                     <div class="sg-empty">
                         <div class="sg-empty-icon">&#128203;</div>
                         <div class="sg-empty-text">List is empty</div>
-                        <div class="sg-empty-sub">Items added from the main app will appear here.</div>
+                        <div class="sg-empty-sub">Tap <strong>+ ADD ITEM</strong> below to add something.</div>
                     </div>`;
             } else {
-                html += `<ul class="sg-item-list" id="item-list">`;
-
-                // Pending items first
-                for (const item of pending) {
-                    html += renderItem(item);
-                }
-
-                // Completed items with separator
+                html += `<ul class="sg-item-list">`;
+                for (const item of pending)   html += renderItem(item);
                 if (completed.length > 0) {
                     html += `<li class="sg-completed-header">&#10003; Checked off (${completed.length})</li>`;
-                    for (const item of completed) {
-                        html += renderItem(item);
-                    }
+                    for (const item of completed) html += renderItem(item);
                 }
-
                 html += `</ul>`;
             }
 
@@ -701,7 +966,6 @@
         }
 
         function renderItem(item) {
-            const isPending = _pendingToggles.has(item.id);
             return `
                 <li class="sg-item${item.is_completed ? ' done' : ''}"
                     id="item-row-${item.id}"
@@ -712,7 +976,8 @@
                     <div class="sg-check-ring" id="ring-${item.id}"></div>
                     <div class="sg-item-info">
                         <span class="sg-item-name">${escHtml(item.name || item.barcode)}</span>
-                        ${item.barcode ? `<span class="sg-item-barcode">${escHtml(item.barcode)}</span>` : ''}
+                        ${item.barcode && !item.barcode.startsWith('MANUAL-')
+                            ? `<span class="sg-item-barcode">${escHtml(item.barcode)}</span>` : ''}
                     </div>
                     <span class="sg-item-qty">&times;${item.requested_qty}</span>
                 </li>`;
@@ -720,17 +985,12 @@
 
         // ── Interactions ───────────────────────────────────────────────────────
 
-        function switchTab(id) {
-            _activeTab = id;
-            renderTabs();
-            renderPanel();
-        }
+        function switchTab(id) { _activeTab = id; renderTabs(); renderPanel(); }
 
         async function toggleItem(itemId, rowEl) {
-            if (_pendingToggles.has(itemId)) return; // debounce rapid taps
+            if (_pendingToggles.has(itemId)) return;
             _pendingToggles.add(itemId);
 
-            // Optimistic UI update
             const isDone = rowEl.classList.contains('done');
             rowEl.classList.toggle('done');
             rowEl.setAttribute('aria-checked', !isDone);
@@ -742,9 +1002,7 @@
                     ring.style.boxShadow   = '0 0 8px rgba(0,255,136,.35)';
                     ring.textContent = '✓';
                 } else {
-                    ring.style.borderColor = '';
-                    ring.style.background  = '';
-                    ring.style.boxShadow   = '';
+                    ring.style.cssText = '';
                     ring.textContent = '';
                 }
             }
@@ -753,36 +1011,116 @@
                 const resp = await fetch(TOGGLE_URL(itemId), { method: 'POST' });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
-
-                // Update local data model
                 for (const list of _data) {
                     const item = list.items.find(i => i.id === itemId);
-                    if (item) {
-                        item.is_completed = data.is_completed;
-                        break;
-                    }
+                    if (item) { item.is_completed = data.is_completed; break; }
                 }
-
-                // Update tab counts without full re-render
                 renderTabs();
-
-                // Re-render panel after brief delay to let the user see the checkmark
-                setTimeout(() => {
-                    renderPanel();
-                    _pendingToggles.delete(itemId);
-                }, 450);
-
+                setTimeout(() => { renderPanel(); _pendingToggles.delete(itemId); }, 450);
             } catch (e) {
-                // Revert optimistic update on failure
                 rowEl.classList.toggle('done');
-                if (ring) {
-                    ring.style.borderColor = '';
-                    ring.style.background  = '';
-                    ring.style.boxShadow   = '';
-                    ring.textContent = '';
-                }
-                showToast('FAILED TO SAVE — RETRYING', true);
+                if (ring) { ring.style.cssText = ''; ring.textContent = ''; }
+                showToast('FAILED TO SAVE — CHECK CONNECTION', true);
                 _pendingToggles.delete(itemId);
+            }
+        }
+
+        // ── Sheets ─────────────────────────────────────────────────────────────
+
+        function openAddItemSheet() {
+            // Populate list dropdown
+            const sel = document.getElementById('add-item-list-id');
+            sel.innerHTML = _data.length === 0
+                ? '<option value="">— No lists exist yet —</option>'
+                : _data.map(l => `<option value="${l.id}">${escHtml(l.store_name || l.name)}</option>`).join('');
+            // Pre-select the active tab's list if applicable
+            if (_activeTab !== 'all') sel.value = _activeTab;
+            setSheetStatus('add-item-status', '', '');
+            document.getElementById('add-item-name').value = '';
+            document.getElementById('add-item-barcode').value = '';
+            document.getElementById('add-item-qty').value = '1';
+            document.getElementById('add-item-overlay').classList.add('open');
+            setTimeout(() => document.getElementById('add-item-name').focus(), 350);
+        }
+
+        function openNewListSheet() {
+            setSheetStatus('new-list-status', '', '');
+            document.getElementById('new-list-name').value = '';
+            document.getElementById('new-list-store').value = '';
+            document.getElementById('new-list-overlay').classList.add('open');
+            setTimeout(() => document.getElementById('new-list-name').focus(), 350);
+        }
+
+        function closeSheet(id) {
+            document.getElementById(id).classList.remove('open');
+        }
+
+        function sheetOverlayClick(e, id) {
+            if (e.target === document.getElementById(id)) closeSheet(id);
+        }
+
+        function setSheetStatus(elId, msg, type) {
+            const el = document.getElementById(elId);
+            el.textContent = msg;
+            el.className = 'sg-sheet-status' + (type ? ' ' + type : '');
+            el.style.display = msg ? 'block' : 'none';
+        }
+
+        async function submitAddItem() {
+            const listId = parseInt(document.getElementById('add-item-list-id').value);
+            const name   = document.getElementById('add-item-name').value.trim();
+            const barcode = document.getElementById('add-item-barcode').value.trim();
+            const qty    = parseInt(document.getElementById('add-item-qty').value) || 1;
+
+            if (!listId)  { setSheetStatus('add-item-status', 'Select a shopping list first.', 'error'); return; }
+            if (!name)    { setSheetStatus('add-item-status', 'Item name is required.', 'error'); return; }
+
+            const fd = new FormData();
+            fd.append('list_id', listId);
+            fd.append('name', name);
+            if (barcode) fd.append('barcode', barcode);
+            fd.append('qty', qty);
+
+            try {
+                const resp = await fetch(ADD_ITEM_URL, { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+                if (data.already_exists) {
+                    setSheetStatus('add-item-status', `"${name}" is already on this list.`, 'ok');
+                } else {
+                    setSheetStatus('add-item-status', `✓ "${name}" added!`, 'ok');
+                    document.getElementById('add-item-name').value = '';
+                    document.getElementById('add-item-barcode').value = '';
+                    document.getElementById('add-item-qty').value = '1';
+                    await refreshNow();
+                }
+            } catch (e) {
+                setSheetStatus('add-item-status', `Error: ${e.message}`, 'error');
+            }
+        }
+
+        async function submitNewList() {
+            const name  = document.getElementById('new-list-name').value.trim();
+            const store = document.getElementById('new-list-store').value.trim();
+            if (!name) { setSheetStatus('new-list-status', 'List name is required.', 'error'); return; }
+
+            const fd = new FormData();
+            fd.append('name', name);
+            if (store) fd.append('store_name', store);
+
+            try {
+                const resp = await fetch(CREATE_LIST_URL, { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+                setSheetStatus('new-list-status', `✓ List "${name}" created!`, 'ok');
+                document.getElementById('new-list-name').value = '';
+                document.getElementById('new-list-store').value = '';
+                await refreshNow();
+                _activeTab = data.list_id;
+                render();
+                setTimeout(() => closeSheet('new-list-overlay'), 1200);
+            } catch (e) {
+                setSheetStatus('new-list-status', `Error: ${e.message}`, 'error');
             }
         }
 
@@ -791,11 +1129,8 @@
         function escHtml(str) {
             if (!str) return '';
             return String(str)
-                .replace(/&/g,  '&amp;')
-                .replace(/</g,  '&lt;')
-                .replace(/>/g,  '&gt;')
-                .replace(/"/g,  '&quot;')
-                .replace(/'/g,  '&#39;');
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
         let _toastTimer = null;
@@ -809,9 +1144,7 @@
         }
 
         // ── Init ───────────────────────────────────────────────────────────────
-        (async function init() {
-            await refreshNow();
-        })();
+        (async function init() { await refreshNow(); })();
     </script>
 </body>
 </html>
