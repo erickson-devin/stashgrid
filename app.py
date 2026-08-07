@@ -63,9 +63,9 @@ _ph = PasswordHasher(
 )
 SYSTEM_USER_ID = 1  # Reserved ID for hardware scanner audit entries
 
-# Ensure photo storage directory exists alongside the static folder
-PHOTOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "photos")
-os.makedirs(PHOTOS_DIR, exist_ok=True)
+# Ensure cover storage directory exists alongside the static folder
+UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 
 def init_db():
@@ -85,56 +85,33 @@ def init_db():
                 FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE
             )
         """)
+        # Drop old tables
+        conn.execute("DROP TABLE IF EXISTS inventory")
+        conn.execute("DROP TABLE IF EXISTS shopping_lists")
+        conn.execute("DROP TABLE IF EXISTS shopping_list_items")
+
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS inventory (
+            CREATE TABLE IF NOT EXISTS books (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                barcode TEXT NOT NULL,
-                name TEXT,
+                title TEXT NOT NULL,
+                author TEXT,
+                isbn TEXT,
+                genre TEXT,
+                publication_year INTEGER,
+                pages INTEGER,
+                series TEXT,
+                read_status TEXT DEFAULT 'Unread',
+                notes TEXT,
                 room_id INTEGER,
                 shelf_id INTEGER,
-                quantity INTEGER DEFAULT 1,
-                notes TEXT,
+                cover_path TEXT,
+                created_by INTEGER,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
                 removed_at TEXT,
                 removed_reason TEXT,
                 FOREIGN KEY(room_id) REFERENCES rooms(id),
                 FOREIGN KEY(shelf_id) REFERENCES shelves(id)
-            )
-        """)
-        # Idempotent migration: add photo_path column if not yet present
-        try:
-            conn.execute("ALTER TABLE inventory ADD COLUMN photo_path TEXT")
-        except Exception:
-            pass  # Column already exists
-        # Idempotent migration: add low_stock_threshold column
-        try:
-            conn.execute("ALTER TABLE inventory ADD COLUMN low_stock_threshold INTEGER DEFAULT 0")
-        except Exception:
-            pass  # Column already exists
-        # Idempotent migration: add preferred_store column
-        try:
-            conn.execute("ALTER TABLE inventory ADD COLUMN preferred_store TEXT DEFAULT 'Costco'")
-        except Exception:
-            pass  # Column already exists
-        # Shopping list tables
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS shopping_lists (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                store_name TEXT,
-                is_default INTEGER DEFAULT 0
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS shopping_list_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                list_id INTEGER,
-                barcode TEXT,
-                name TEXT,
-                requested_qty INTEGER DEFAULT 1,
-                is_completed INTEGER DEFAULT 0,
-                FOREIGN KEY(list_id) REFERENCES shopping_lists(id) ON DELETE CASCADE
             )
         """)
         # ── Auth: users table ─────────────────────────────────────────────────
@@ -158,9 +135,9 @@ def init_db():
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         """)
-        # ── Idempotent migration: add created_by to inventory ─────────────────
+        # ── Idempotent migration: add created_by to books ─────────────────
         try:
-            conn.execute("ALTER TABLE inventory ADD COLUMN created_by INTEGER")
+            conn.execute("ALTER TABLE books ADD COLUMN created_by INTEGER")
         except Exception:
             pass  # Column already exists
         # ── Seed system & admin users if the table is brand new ───────────────
@@ -280,28 +257,28 @@ def _get_room_layout(room_id):
         return room, shelves
 
 
-def _fetch_items_by_layout(room_id=None, q=""):
+def _fetch_books_by_layout(room_id=None, q=""):
     with sqlite3.connect(DB) as conn:
         if q:
             like = f"%{q}%"
             rows = conn.execute("""
-                SELECT i.id, i.barcode, i.name, r.name, s.shelf_number, i.quantity, i.notes, i.updated_at, i.room_id, i.shelf_id, i.photo_path, i.low_stock_threshold, i.preferred_store
-                FROM inventory i
-                LEFT JOIN rooms r ON i.room_id = r.id
-                LEFT JOIN shelves s ON i.shelf_id = s.id
-                WHERE i.is_active = 1
-                  AND (i.barcode LIKE ? OR i.name LIKE ? OR i.notes LIKE ? OR r.name LIKE ?)
-                ORDER BY i.updated_at DESC
-            """, (like, like, like, like)).fetchall()
+                SELECT b.id, b.isbn, b.title, b.author, b.genre, b.pages, b.series, b.read_status, r.name, s.shelf_number, b.notes, b.updated_at, b.room_id, b.shelf_id, b.cover_path
+                FROM books b
+                LEFT JOIN rooms r ON b.room_id = r.id
+                LEFT JOIN shelves s ON b.shelf_id = s.id
+                WHERE b.is_active = 1
+                  AND (b.isbn LIKE ? OR b.title LIKE ? OR b.author LIKE ? OR b.series LIKE ? OR b.notes LIKE ? OR r.name LIKE ?)
+                ORDER BY b.updated_at DESC
+            """, (like, like, like, like, like, like)).fetchall()
             return rows
         elif room_id:
             rows = conn.execute("""
-                SELECT i.id, i.barcode, i.name, r.name, s.shelf_number, i.quantity, i.notes, i.updated_at, i.room_id, i.shelf_id, i.photo_path, i.low_stock_threshold, i.preferred_store
-                FROM inventory i
-                LEFT JOIN rooms r ON i.room_id = r.id
-                LEFT JOIN shelves s ON i.shelf_id = s.id
-                WHERE i.is_active = 1 AND i.room_id = ?
-                ORDER BY s.shelf_number DESC, i.updated_at DESC
+                SELECT b.id, b.isbn, b.title, b.author, b.genre, b.pages, b.series, b.read_status, r.name, s.shelf_number, b.notes, b.updated_at, b.room_id, b.shelf_id, b.cover_path
+                FROM books b
+                LEFT JOIN rooms r ON b.room_id = r.id
+                LEFT JOIN shelves s ON b.shelf_id = s.id
+                WHERE b.is_active = 1 AND b.room_id = ?
+                ORDER BY s.shelf_number DESC, b.updated_at DESC
             """, (room_id,)).fetchall()
             return rows
         return []
@@ -330,24 +307,16 @@ def index():
     selected_room_id = _resolve_room_id(request.args.get("room_id"), rooms)
 
     room_info, shelves = _get_room_layout(selected_room_id)
-    items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
-
-    with sqlite3.connect(DB) as conn:
-        store_names = [
-            row[0] for row in conn.execute(
-                "SELECT DISTINCT store_name FROM shopping_lists WHERE store_name IS NOT NULL AND store_name != '' ORDER BY store_name ASC"
-            ).fetchall()
-        ]
+    books = _fetch_books_by_layout(room_id=selected_room_id, q=q)
 
     return render_template(
         "index.html",
         rooms=rooms,
         room_info=room_info,
         shelves=shelves,
-        items=items,
+        books=books,
         selected_room_id=selected_room_id,
-        q=q,
-        store_names=store_names
+        q=q
     )
 
 
@@ -400,11 +369,11 @@ def add_shelves_to_room(room_id):
 
 @app.route("/api/rooms/<int:room_id>/delete", methods=["POST"])
 def delete_room(room_id):
-    """Delete a room, its shelves, and soft-delete all its inventory items."""
+    """Delete a room, its shelves, and soft-delete all its books."""
     with sqlite3.connect(DB) as conn:
-        # Soft-delete all inventory belonging to this room
+        # Soft-delete all books belonging to this room
         conn.execute(
-            "UPDATE inventory SET is_active = 0, quantity = 0, removed_at = CURRENT_TIMESTAMP, "
+            "UPDATE books SET is_active = 0, removed_at = CURRENT_TIMESTAMP, "
             "removed_reason = 'Room deleted via HUD' WHERE room_id = ?",
             (room_id,)
         )
@@ -416,186 +385,133 @@ def delete_room(room_id):
     return redirect("/")
 
 
-def _lookup_open_food_facts(barcode):
-    """Try Open Food Facts API. Returns product name or empty string."""
+def fetch_isbn_metadata(isbn):
+    """Query OpenLibrary for book metadata and download the cover art."""
+    if not isbn:
+        return {"title": "UNKNOWN_ASSET_PENDING_MANUAL_ENTRY"}
+        
     try:
-        resp = http_client.get(
-            f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json",
-            timeout=2,
-            headers={"User-Agent": "StashGrid/1.0"}
-        )
+        url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data"
+        resp = http_client.get(url, timeout=5, headers={"User-Agent": "ShelfGrid/1.0"})
+        
         if resp.status_code == 200:
             data = resp.json()
-            if data.get("status") == 1:
-                p = data.get("product", {})
-                name = p.get("product_name") or p.get("generic_name") or p.get("brands")
-                if name:
-                    return name.strip()
+            key = f"ISBN:{isbn}"
+            if key in data:
+                book_data = data[key]
+                title = book_data.get("title", "UNKNOWN_ASSET_PENDING_MANUAL_ENTRY")
+                authors = book_data.get("authors", [])
+                author = authors[0].get("name") if authors else None
+                pages = book_data.get("number_of_pages")
+                
+                cover_url = None
+                cover_path = None
+                if "cover" in book_data:
+                    cover_url = book_data["cover"].get("large") or book_data["cover"].get("medium")
+                
+                if cover_url:
+                    try:
+                        img_resp = http_client.get(cover_url, timeout=5)
+                        if img_resp.status_code == 200:
+                            filename = f"{isbn}_{int(time.time())}.jpg"
+                            save_path = os.path.join(UPLOADS_DIR, filename)
+                            with open(save_path, "wb") as f:
+                                f.write(img_resp.content)
+                            cover_path = f"/static/uploads/{filename}"
+                    except Exception as e:
+                        logger.warning(f"Failed to download cover for {isbn}: {e}")
+
+                return {
+                    "title": title,
+                    "author": author,
+                    "pages": pages,
+                    "cover_path": cover_path
+                }
     except Exception as e:
-        logger.debug("Open Food Facts lookup failed for %s: %s", barcode, e)
-    return ""
+        logger.error(f"OpenLibrary API error for ISBN {isbn}: {e}")
+        
+    return {"title": "UNKNOWN_ASSET_PENDING_MANUAL_ENTRY"}
 
 
-def _lookup_upcitemdb(barcode):
-    """Try UPCitemdb API as a fallback. Returns product title or empty string."""
-    try:
-        resp = http_client.get(
-            f"https://api.upcitemdb.com/prod/trial/lookup?upc={barcode}",
-            timeout=2,
-            headers={"User-Agent": "StashGrid/1.0"}
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            items = data.get("items", [])
-            if items:
-                title = items[0].get("title")
-                if title:
-                    return title.strip()
-    except Exception as e:
-        logger.debug("UPCitemdb lookup failed for %s: %s", barcode, e)
-    return ""
-
-
-def _web_lookup_name(barcode):
-    """Chain Open Food Facts → UPCitemdb, mirroring scanner.py lookup_product_name.
-    Only attempted for numeric barcodes (UPC/EAN). Returns empty string on failure.
-    """
-    if not barcode.isdigit():
-        return ""
-    return _lookup_open_food_facts(barcode) or _lookup_upcitemdb(barcode) or ""
-
-
-def _auto_add_to_shopping_list(conn, barcode, name, preferred_store="Costco"):
-    """Auto-insert a low-stock item into the best-matching shopping list.
-    Resolution order:
-      1. A list whose store_name exactly matches preferred_store (case-insensitive)
-      2. The list flagged is_default = 1
-      3. A newly-created default list if none exists
-    Called within an existing DB connection — no new connection needed.
-    """
-    list_id = None
-
-    # 1. Try to find a list matching the item's preferred store
-    if preferred_store:
-        match = conn.execute(
-            "SELECT id FROM shopping_lists WHERE LOWER(store_name) = LOWER(?) LIMIT 1",
-            (preferred_store,)
-        ).fetchone()
-        if match:
-            list_id = match[0]
-
-    # 2. Fall back to the default list
-    if list_id is None:
-        default_list = conn.execute(
-            "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
-        ).fetchone()
-        if default_list:
-            list_id = default_list[0]
-
-    # 3. No lists exist at all — create one named after the preferred store
-    if list_id is None:
-        cursor = conn.execute(
-            "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, 1)",
-            (preferred_store or "Shopping List", preferred_store or "")
-        )
-        list_id = cursor.lastrowid
-
-    existing = conn.execute(
-        "SELECT id FROM shopping_list_items WHERE list_id = ? AND barcode = ? AND is_completed = 0",
-        (list_id, barcode)
-    ).fetchone()
-
-    if not existing:
-        conn.execute(
-            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) "
-            "VALUES (?, ?, ?, 1, 0)",
-            (list_id, barcode, name)
-        )
-        logger.info(
-            "Auto-added '%s' (%s) to shopping list %d (store: %s, low stock triggered)",
-            name, barcode, list_id, preferred_store or "default"
-        )
-
-
-@app.route("/api/scan", methods=["POST"])
-def api_scan():
-    """Receive a barcode from the browser camera or hardware scanner.
+@app.route("/api/books/add", methods=["POST"])
+def api_books_add():
+    """Receive an ISBN from the browser camera or hardware scanner.
     CRITICAL: This route is intentionally unprotected — the headless scanner.py
     script hits it directly without a browser session. Actions are attributed
     to SYSTEM_USER_ID (1) in the audit log."""
-    barcode = request.form.get("barcode", "").strip().upper()
+    isbn = request.form.get("barcode", "").strip().upper()
     shelf_id = request.form.get("shelf_id", type=int)
     room_id = request.form.get("room_id", type=int)
 
-    if not barcode or not shelf_id or not room_id:
-        return jsonify({"error": "barcode, shelf_id and room_id are all required"}), 400
+    if not isbn or not shelf_id or not room_id:
+        return jsonify({"error": "barcode (isbn), shelf_id and room_id are all required"}), 400
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     with sqlite3.connect(DB) as conn:
         existing = conn.execute("""
-            SELECT id, quantity, name, photo_path FROM inventory
-            WHERE barcode = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
-        """, (barcode, room_id, shelf_id)).fetchone()
+            SELECT id, title, cover_path FROM books
+            WHERE isbn = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
+        """, (isbn, room_id, shelf_id)).fetchone()
 
         if existing:
-            conn.execute(
-                "UPDATE inventory SET quantity = quantity + 1, updated_at = ? WHERE id = ?",
-                (now, existing[0])
-            )
-            logger.info("Incremented barcode %s on shelf %d", barcode, shelf_id)
-            log_audit(SYSTEM_USER_ID, "scan_increment", "item", existing[0])
+            # Books are generally unique, but if they scan the exact same ISBN to the exact same shelf,
+            # we just acknowledge it (we don't increment quantity since we removed it).
+            logger.info("Re-scanned existing ISBN %s on shelf %d", isbn, shelf_id)
             return jsonify({
                 "id": existing[0],
-                "name": existing[2] or barcode,
-                "quantity": existing[1] + 1,
-                "photo_path": existing[3],
+                "title": existing[1] or isbn,
+                "cover_path": existing[2],
                 "is_new": False
             })
         else:
-            name = _web_lookup_name(barcode) or "[ New Asset ]"
+            metadata = fetch_isbn_metadata(isbn)
+            title = metadata.get("title")
+            author = metadata.get("author")
+            pages = metadata.get("pages")
+            cover_path = metadata.get("cover_path")
+
             cursor = conn.execute("""
-                INSERT INTO inventory (barcode, name, room_id, shelf_id, quantity, notes, updated_at, is_active)
-                VALUES (?, ?, ?, ?, 1, '', ?, 1)
-            """, (barcode, name, room_id, shelf_id, now))
+                INSERT INTO books (isbn, title, author, pages, room_id, shelf_id, notes, updated_at, is_active, cover_path)
+                VALUES (?, ?, ?, ?, ?, ?, '', ?, 1, ?)
+            """, (isbn, title, author, pages, room_id, shelf_id, now, cover_path))
             new_id = cursor.lastrowid
-            logger.info("New item scanned: %s (%s) on shelf %d", name, barcode, shelf_id)
-            log_audit(SYSTEM_USER_ID, "scan_new", "item", new_id)
+            logger.info("New book scanned: %s (%s) on shelf %d", title, isbn, shelf_id)
+            log_audit(SYSTEM_USER_ID, "scan_new", "book", new_id)
             return jsonify({
                 "id": new_id,
-                "name": name,
-                "quantity": 1,
-                "photo_path": None,
+                "title": title,
+                "cover_path": cover_path,
                 "is_new": True
             })
 
 
-@app.route("/api/items/<int:item_id>/photo", methods=["POST"])
-def upload_item_photo(item_id):
-    """Accept a photo upload, resize it with Pillow, save to static/photos/, update DB."""
+@app.route("/api/books/<int:book_id>/cover", methods=["POST"])
+def upload_book_cover(book_id):
+    """Accept a cover upload, resize it with Pillow, save to static/uploads/, update DB."""
     if "photo" not in request.files or not request.files["photo"].filename:
-        return jsonify({"error": "No photo file provided"}), 400
+        return jsonify({"error": "No file provided"}), 400
 
     try:
         photo_file = request.files["photo"]
         img = Image.open(photo_file)
-        img.thumbnail((400, 400), Image.LANCZOS)
+        img.thumbnail((400, 600), Image.LANCZOS)
         if img.mode in ("RGBA", "P", "LA"):
             img = img.convert("RGB")
 
-        filename = f"{item_id}.jpg"
-        save_path = os.path.join(PHOTOS_DIR, filename)
+        filename = f"manual_{book_id}_{int(time.time())}.jpg"
+        save_path = os.path.join(UPLOADS_DIR, filename)
         img.save(save_path, "JPEG", quality=85)
 
-        photo_url = f"/static/photos/{filename}"
+        photo_url = f"/static/uploads/{filename}"
         with sqlite3.connect(DB) as conn:
-            conn.execute("UPDATE inventory SET photo_path = ? WHERE id = ?", (photo_url, item_id))
+            conn.execute("UPDATE books SET cover_path = ? WHERE id = ?", (photo_url, book_id))
 
-        logger.info("Photo saved for item %d at %s", item_id, save_path)
+        logger.info("Cover saved for book %d at %s", book_id, save_path)
         return jsonify({"photo_url": photo_url})
 
     except Exception as e:
-        logger.error("Photo upload failed for item %d: %s", item_id, e)
+        logger.error("Cover upload failed for book %d: %s", book_id, e)
         return jsonify({"error": str(e)}), 500
 
 
@@ -618,409 +534,121 @@ def scanner_state():
         return jsonify({"online": False, "mode": "IN", "shelf_number": None, "shelf_id": None, "room_id": None})
 
 
-@app.route("/api/inventory-hash")
-def inventory_hash():
+@app.route("/api/library-hash")
+def library_hash():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
     selected_room_id = _resolve_room_id(request.args.get("room_id"), rooms)
 
-    items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
-    with sqlite3.connect(DB) as conn:
-        sl_lists = conn.execute(
-            "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY id"
-        ).fetchall()
-        sl_items = conn.execute(
-            "SELECT id, list_id, barcode, is_completed FROM shopping_list_items ORDER BY id"
-        ).fetchall()
-    state = {"items": items, "rooms": rooms, "sl_lists": sl_lists, "sl_items": sl_items}
+    books = _fetch_books_by_layout(room_id=selected_room_id, q=q)
+    state = {"books": books, "rooms": rooms}
     digest = hashlib.md5(json.dumps(state, default=str).encode()).hexdigest()
     return jsonify({"hash": digest})
 
 
-@app.route("/api/items")
-def api_items():
+@app.route("/api/books")
+def api_books():
     q = request.args.get("q", "").strip()
     rooms = _get_rooms_list()
     selected_room_id = _resolve_room_id(request.args.get("room_id"), rooms)
 
     room_info, shelves = _get_room_layout(selected_room_id)
-    items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
+    books = _fetch_books_by_layout(room_id=selected_room_id, q=q)
 
+    html = render_template("_book_cards.html", room_info=room_info, books=books, shelves=shelves, q=q)
+    return jsonify({"html": html, "count": len(books)})
+
+
+@app.route("/api/stats")
+def api_stats():
+    """Return library stats for the dashboard."""
     with sqlite3.connect(DB) as conn:
-        store_names = [
-            row[0] for row in conn.execute(
-                "SELECT DISTINCT store_name FROM shopping_lists WHERE store_name IS NOT NULL AND store_name != '' ORDER BY store_name ASC"
-            ).fetchall()
-        ]
+        total_books = conn.execute("SELECT count(*) FROM books WHERE is_active = 1").fetchone()[0]
+        total_pages = conn.execute("SELECT sum(pages) FROM books WHERE is_active = 1 AND pages IS NOT NULL").fetchone()[0] or 0
+        avg_pages = 0
+        if total_books > 0:
+            books_with_pages = conn.execute("SELECT count(*) FROM books WHERE is_active = 1 AND pages IS NOT NULL").fetchone()[0]
+            if books_with_pages > 0:
+                avg_pages = int(total_pages / books_with_pages)
 
-    html = render_template("_item_cards.html", room_info=room_info, items=items, shelves=shelves, q=q, store_names=store_names)
-    return jsonify({"html": html, "count": len(items)})
+        genres_query = conn.execute(
+            "SELECT genre, count(*) as c FROM books WHERE is_active = 1 AND genre IS NOT NULL AND genre != '' GROUP BY genre ORDER BY c DESC LIMIT 5"
+        ).fetchall()
+        top_genres = [{"genre": g[0], "count": g[1]} for g in genres_query]
+
+        authors_query = conn.execute(
+            "SELECT author, count(*) as c FROM books WHERE is_active = 1 AND author IS NOT NULL AND author != '' GROUP BY author ORDER BY c DESC LIMIT 5"
+        ).fetchall()
+        top_authors = [{"author": a[0], "count": a[1]} for a in authors_query]
+        
+        # Simple placeholder for series data (just counts right now)
+        series_query = conn.execute(
+            "SELECT series, count(*) as c FROM books WHERE is_active = 1 AND series IS NOT NULL AND series != '' GROUP BY series ORDER BY c DESC LIMIT 5"
+        ).fetchall()
+        top_series = [{"series": s[0], "count": s[1]} for s in series_query]
+
+    return jsonify({
+        "total_books": total_books,
+        "total_pages": total_pages,
+        "avg_pages": avg_pages,
+        "top_genres": top_genres,
+        "top_authors": top_authors,
+        "top_series": top_series
+    })
 
 
-@app.route("/edit/<int:item_id>", methods=["POST"])
-def edit_item(item_id):
-    name = request.form.get("name", "").strip()
+@app.route("/edit/<int:book_id>", methods=["POST"])
+def edit_book(book_id):
+    title = request.form.get("title", "").strip()
+    author = request.form.get("author", "").strip()
+    isbn = request.form.get("isbn", "").strip()
+    genre = request.form.get("genre", "").strip()
+    series = request.form.get("series", "").strip()
+    read_status = request.form.get("read_status", "Unread").strip()
+    try:
+        pages = int(request.form.get("pages", 0) or 0)
+    except ValueError:
+        pages = 0
+
     notes = request.form.get("notes", "").strip()
     room_id = request.form.get("room_id")
-    threshold = int(request.form.get("low_stock_threshold", 0) or 0)
-    preferred_store = request.form.get("preferred_store", "Costco").strip() or "Costco"
     new_shelf_id_raw = request.form.get("new_shelf_id", "").strip()
 
     with sqlite3.connect(DB) as conn:
         if new_shelf_id_raw.isdigit():
             # Relocate asset: update shelf_id alongside the standard metadata fields
             conn.execute("""
-                UPDATE inventory
-                SET name = ?, notes = ?, low_stock_threshold = ?, preferred_store = ?,
+                UPDATE books
+                SET title = ?, author = ?, isbn = ?, genre = ?, series = ?, pages = ?, read_status = ?, notes = ?,
                     shelf_id = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (name, notes, threshold, preferred_store, int(new_shelf_id_raw), item_id))
-            logger.info("Relocated item %d to shelf %s via Web HUD", item_id, new_shelf_id_raw)
+            """, (title, author, isbn, genre, series, pages, read_status, notes, int(new_shelf_id_raw), book_id))
+            logger.info("Relocated book %d to shelf %s via Web HUD", book_id, new_shelf_id_raw)
         else:
             # No relocation requested — leave shelf_id untouched
             conn.execute("""
-                UPDATE inventory
-                SET name = ?, notes = ?, low_stock_threshold = ?, preferred_store = ?, updated_at = CURRENT_TIMESTAMP
+                UPDATE books
+                SET title = ?, author = ?, isbn = ?, genre = ?, series = ?, pages = ?, read_status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (name, notes, threshold, preferred_store, item_id))
+            """, (title, author, isbn, genre, series, pages, read_status, notes, book_id))
 
-    log_audit(session.get("user_id"), "edit_item", "item", item_id)
+    log_audit(session.get("user_id"), "edit_book", "book", book_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
-@app.route("/remove/<int:item_id>", methods=["POST"])
-def remove_item_quantity(item_id):
-    amount = int(request.form.get("amount", 1))
-    reason = request.form.get("reason", "Removed via HUD")
-    room_id = request.form.get("room_id")
-
-    with sqlite3.connect(DB) as conn:
-        item = conn.execute(
-            "SELECT quantity, barcode, name, low_stock_threshold, preferred_store FROM inventory WHERE id = ? AND is_active = 1",
-            (item_id,)
-        ).fetchone()
-        if not item:
-            return redirect("/")
-
-        current_quantity, barcode, item_name, threshold, preferred_store = item
-        if current_quantity > amount:
-            conn.execute(
-                "UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (amount, item_id)
-            )
-            new_qty = current_quantity - amount
-        else:
-            conn.execute(
-                "UPDATE inventory SET quantity = 0, is_active = 0, removed_at = CURRENT_TIMESTAMP, "
-                "removed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (reason, item_id)
-            )
-            new_qty = 0
-
-        # Auto-add to the item's preferred store list if stock drops below threshold
-        if threshold and threshold > 0 and new_qty < threshold:
-            _auto_add_to_shopping_list(
-                conn, barcode, item_name or "[ Unknown Item ]",
-                preferred_store=preferred_store or "Costco"
-            )
-
-    log_audit(session.get("user_id"), "remove_qty", "item", item_id)
-    return redirect(f"/?room_id={room_id}" if room_id else "/")
-
-
-@app.route("/delete/<int:item_id>", methods=["POST"])
-def delete_item(item_id):
+@app.route("/delete/<int:book_id>", methods=["POST"])
+def delete_book(book_id):
     reason = request.form.get("reason", "Purged via terminal")
     room_id = request.form.get("room_id")
 
     with sqlite3.connect(DB) as conn:
-        conn.execute("UPDATE inventory SET quantity = 0, is_active = 0, removed_at = CURRENT_TIMESTAMP, removed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reason, item_id))
+        conn.execute("UPDATE books SET is_active = 0, removed_at = CURRENT_TIMESTAMP, removed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reason, book_id))
 
-    log_audit(session.get("user_id"), "delete_item", "item", item_id)
+    log_audit(session.get("user_id"), "delete_book", "book", book_id)
     return redirect(f"/?room_id={room_id}" if room_id else "/")
 
 
-# ── Shopping List Routes ──────────────────────────────────────
-
-@app.route("/api/shopping-lists")
-def get_shopping_lists():
-    with sqlite3.connect(DB) as conn:
-        lists = conn.execute(
-            "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY is_default DESC, name ASC"
-        ).fetchall()
-        items = conn.execute(
-            "SELECT id, list_id, barcode, name, requested_qty, is_completed "
-            "FROM shopping_list_items ORDER BY is_completed ASC, id ASC"
-        ).fetchall()
-
-    lists_data = []
-    for lst in lists:
-        list_items = [
-            {"id": row[0], "barcode": row[2], "name": row[3], "requested_qty": row[4], "is_completed": row[5]}
-            for row in items if row[1] == lst[0]
-        ]
-        lists_data.append({
-            "id": lst[0], "name": lst[1], "store_name": lst[2] or "",
-            "is_default": lst[3], "items": list_items
-        })
-    return jsonify({"lists": lists_data})
-
-
-@app.route("/api/shopping-lists/create", methods=["POST"])
-def create_shopping_list():
-    data = request.get_json(silent=True) or {}
-    name = (request.form.get("name") or data.get("name", "")).strip()
-    store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
-    if not name:
-        return jsonify({"error": "List name is required"}), 400
-    with sqlite3.connect(DB) as conn:
-        existing_count = conn.execute("SELECT COUNT(*) FROM shopping_lists").fetchone()[0]
-        is_default = 1 if existing_count == 0 else 0
-        cursor = conn.execute(
-            "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, ?)",
-            (name, store_name, is_default)
-        )
-        list_id = cursor.lastrowid
-    logger.info("Created shopping list '%s' (id=%d)", name, list_id)
-    return jsonify({"ok": True, "list_id": list_id})
-
-
-@app.route("/api/shopping-lists/add", methods=["POST"])
-def add_to_shopping_list():
-    data = request.get_json(silent=True) or {}
-    list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
-    barcode = (request.form.get("barcode") or data.get("barcode", "")).strip().upper()
-    name = (request.form.get("name") or data.get("name", "")).strip()
-    qty = int(request.form.get("qty") or data.get("qty") or 1)
-    if not list_id or not barcode:
-        return jsonify({"error": "list_id and barcode are required"}), 400
-    with sqlite3.connect(DB) as conn:
-        existing = conn.execute(
-            "SELECT id FROM shopping_list_items WHERE list_id = ? AND barcode = ? AND is_completed = 0",
-            (list_id, barcode)
-        ).fetchone()
-        if existing:
-            return jsonify({"ok": True, "already_exists": True})
-        conn.execute(
-            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) "
-            "VALUES (?, ?, ?, ?, 0)",
-            (list_id, barcode, name or barcode, qty)
-        )
-    return jsonify({"ok": True, "already_exists": False})
-
-
-@app.route("/api/shopping-lists/toggle-complete/<int:item_id>", methods=["POST"])
-def toggle_shopping_item(item_id):
-    with sqlite3.connect(DB) as conn:
-        row = conn.execute(
-            "SELECT is_completed FROM shopping_list_items WHERE id = ?", (item_id,)
-        ).fetchone()
-        if not row:
-            return jsonify({"error": "Item not found"}), 404
-        new_state = 0 if row[0] else 1
-        conn.execute(
-            "UPDATE shopping_list_items SET is_completed = ? WHERE id = ?", (new_state, item_id)
-        )
-    return jsonify({"ok": True, "is_completed": new_state})
-
-
-@app.route("/api/shopping-lists/commit", methods=["POST"])
-def commit_restock():
-    data = request.get_json(silent=True) or {}
-    list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
-    if not list_id:
-        return jsonify({"error": "list_id is required"}), 400
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    restocked = []
-    unknown = []
-    with sqlite3.connect(DB) as conn:
-        completed = conn.execute(
-            "SELECT id, barcode, name, requested_qty FROM shopping_list_items "
-            "WHERE list_id = ? AND is_completed = 1",
-            (list_id,)
-        ).fetchall()
-        for sl_id, barcode, sl_name, qty in completed:
-            inv = conn.execute(
-                "SELECT id FROM inventory WHERE barcode = ? AND is_active = 1 LIMIT 1",
-                (barcode,)
-            ).fetchone()
-            if inv:
-                conn.execute(
-                    "UPDATE inventory SET quantity = quantity + ?, updated_at = ? WHERE id = ?",
-                    (qty, now, inv[0])
-                )
-                conn.execute("DELETE FROM shopping_list_items WHERE id = ?", (sl_id,))
-                restocked.append({"barcode": barcode, "name": sl_name, "qty": qty})
-                logger.info("Restocked %s x%d via shopping list commit", barcode, qty)
-            else:
-                unknown.append({"barcode": barcode, "name": sl_name})
-    return jsonify({"ok": True, "restocked": restocked, "unknown_barcodes": unknown})
-
-
-@app.route("/api/shopping-lists/<int:list_id>/set-default", methods=["POST"])
-def set_default_shopping_list(list_id):
-    with sqlite3.connect(DB) as conn:
-        conn.execute("UPDATE shopping_lists SET is_default = 0")
-        conn.execute("UPDATE shopping_lists SET is_default = 1 WHERE id = ?", (list_id,))
-    return jsonify({"ok": True})
-
-
-@app.route("/api/shopping-lists/<int:list_id>/rename", methods=["POST"])
-def rename_shopping_list(list_id):
-    data = request.get_json(silent=True) or {}
-    name = (request.form.get("name") or data.get("name", "")).strip()
-    store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
-    if not name:
-        return jsonify({"error": "Name is required"}), 400
-    with sqlite3.connect(DB) as conn:
-        conn.execute(
-            "UPDATE shopping_lists SET name = ?, store_name = ? WHERE id = ?",
-            (name, store_name, list_id)
-        )
-    return jsonify({"ok": True})
-
-
-@app.route("/api/shopping-lists/<int:list_id>/delete", methods=["POST"])
-def delete_shopping_list(list_id):
-    with sqlite3.connect(DB) as conn:
-        lst = conn.execute(
-            "SELECT is_default FROM shopping_lists WHERE id = ?", (list_id,)
-        ).fetchone()
-        # Explicitly delete items first (FK cascade requires PRAGMA foreign_keys=ON)
-        conn.execute("DELETE FROM shopping_list_items WHERE list_id = ?", (list_id,))
-        conn.execute("DELETE FROM shopping_lists WHERE id = ?", (list_id,))
-        # Promote another list to default if we just deleted the default
-        if lst and lst[0] == 1:
-            next_lst = conn.execute("SELECT id FROM shopping_lists LIMIT 1").fetchone()
-            if next_lst:
-                conn.execute("UPDATE shopping_lists SET is_default = 1 WHERE id = ?", (next_lst[0],))
-    logger.info("Deleted shopping list %d", list_id)
-    return jsonify({"ok": True})
-
-
-init_db()
-
-# Log the public shopping URL so you always know where to send the link
-logger.info(
-    "Public shopping list URL: https://stashgrid.devinerickson.com/shop/%s",
-    SHOPPING_TOKEN
-)
-print(f"[StashGrid] Public shopping list URL: https://stashgrid.devinerickson.com/shop/{SHOPPING_TOKEN}")
-
-
-# ── Public Shopping List Routes (token-secured, Cloudflare-exposed) ───────────
-
-def _get_shopping_lists_payload():
-    """Shared data-fetch used by both the local and public shopping list APIs."""
-    with sqlite3.connect(DB) as conn:
-        lists = conn.execute(
-            "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY is_default DESC, name ASC"
-        ).fetchall()
-        items = conn.execute(
-            "SELECT id, list_id, barcode, name, requested_qty, is_completed "
-            "FROM shopping_list_items ORDER BY is_completed ASC, id ASC"
-        ).fetchall()
-
-    lists_data = []
-    for lst in lists:
-        list_items = [
-            {"id": row[0], "barcode": row[2], "name": row[3], "requested_qty": row[4], "is_completed": row[5]}
-            for row in items if row[1] == lst[0]
-        ]
-        lists_data.append({
-            "id": lst[0], "name": lst[1], "store_name": lst[2] or "",
-            "is_default": lst[3], "items": list_items
-        })
-    return lists_data
-
-
-@app.route("/shop/<token>")
-def shopping_view(token):
-    """Public read-only shopping list view — token-secured, Cloudflare-exposed."""
-    if token != SHOPPING_TOKEN:
-        abort(404)
-    return render_template("shopping_view.html", token=token)
-
-
-@app.route("/api/public/shopping-lists/<token>")
-def public_shopping_lists(token):
-    """Public API: return shopping list data. Token-secured."""
-    if token != SHOPPING_TOKEN:
-        abort(404)
-    return jsonify({"lists": _get_shopping_lists_payload()})
-
-
-@app.route("/api/public/shopping-lists/toggle/<token>/<int:item_id>", methods=["POST"])
-def public_toggle_item(token, item_id):
-    """Public API: toggle a shopping list item's completion state. Token-secured."""
-    if token != SHOPPING_TOKEN:
-        abort(404)
-    with sqlite3.connect(DB) as conn:
-        row = conn.execute(
-            "SELECT is_completed FROM shopping_list_items WHERE id = ?", (item_id,)
-        ).fetchone()
-        if not row:
-            return jsonify({"error": "Item not found"}), 404
-        new_state = 0 if row[0] else 1
-        conn.execute(
-            "UPDATE shopping_list_items SET is_completed = ? WHERE id = ?", (new_state, item_id)
-        )
-    logger.info("Public toggle: item %d → is_completed=%d", item_id, new_state)
-    return jsonify({"ok": True, "is_completed": new_state})
-
-
-@app.route("/api/public/shopping-lists/create/<token>", methods=["POST"])
-def public_create_list(token):
-    """Public API: create a new shopping list. Token-secured."""
-    if token != SHOPPING_TOKEN:
-        abort(404)
-    data = request.get_json(silent=True) or {}
-    name = (request.form.get("name") or data.get("name", "")).strip()
-    store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
-    if not name:
-        return jsonify({"error": "List name is required"}), 400
-    with sqlite3.connect(DB) as conn:
-        existing_count = conn.execute("SELECT COUNT(*) FROM shopping_lists").fetchone()[0]
-        is_default = 1 if existing_count == 0 else 0
-        cursor = conn.execute(
-            "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, ?)",
-            (name, store_name, is_default)
-        )
-        list_id = cursor.lastrowid
-    logger.info("Public created shopping list '%s' (id=%d)", name, list_id)
-    return jsonify({"ok": True, "list_id": list_id})
-
-
-@app.route("/api/public/shopping-lists/add/<token>", methods=["POST"])
-def public_add_item(token):
-    """Public API: add an item to a shopping list. Token-secured."""
-    if token != SHOPPING_TOKEN:
-        abort(404)
-    data = request.get_json(silent=True) or {}
-    list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
-    name = (request.form.get("name") or data.get("name", "")).strip()
-    barcode = (request.form.get("barcode") or data.get("barcode", "")).strip().upper()
-    qty = int(request.form.get("qty") or data.get("qty") or 1)
-    if not list_id or not name:
-        return jsonify({"error": "list_id and name are required"}), 400
-    # Use barcode if provided, otherwise generate a placeholder
-    effective_barcode = barcode if barcode else f"MANUAL-{list_id}-{int(datetime.now().timestamp())}"
-    with sqlite3.connect(DB) as conn:
-        # Verify list exists
-        if not conn.execute("SELECT id FROM shopping_lists WHERE id = ?", (list_id,)).fetchone():
-            return jsonify({"error": "List not found"}), 404
-        existing = conn.execute(
-            "SELECT id FROM shopping_list_items WHERE list_id = ? AND LOWER(name) = LOWER(?) AND is_completed = 0",
-            (list_id, name)
-        ).fetchone()
-        if existing:
-            return jsonify({"ok": True, "already_exists": True})
-        conn.execute(
-            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) VALUES (?, ?, ?, ?, 0)",
-            (list_id, effective_barcode, name, qty)
-        )
-    logger.info("Public added item '%s' to list %d", name, list_id)
-    return jsonify({"ok": True, "already_exists": False})
+# ── Shopping List Routes Removed ──────────────────────────────
 
 # ── Kiosk Display Engine ────────────────────────────────
 
@@ -1126,6 +754,7 @@ def _launch_kiosk_display(startup_delay=3):
     except Exception as exc:
         logger.error("Kiosk: failed to launch browser — %s", exc)
 
+init_db()
 
 if __name__ == "__main__":
     # Spin up the kiosk display in a background thread.

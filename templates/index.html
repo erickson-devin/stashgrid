@@ -6,108 +6,80 @@
 
 <div class="status-bar">
     <div class="status-dot"></div>
-    <span id="sync-text">LIVE SYNC: ACTIVE</span>
-    <span style="color:var(--border)">|</span>
-    <span>ROOMS CONFIG: <span style="color:var(--cyan)">ONLINE</span></span>
-    <span style="color:var(--border)">|</span>
-    <span style="color:var(--dim); font-size:10px; letter-spacing:.08em;">
-        ACCESS: <span style="color:var(--cyan); font-weight:bold;">LOCAL // OPEN</span>
-    </span>
-    <span style="color:var(--border)">|</span>
-    <!-- Scanner mode key: updates live as shelf selection changes -->
-    <span id="scanner-mode-key" style="
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 11px;
-        letter-spacing: .08em;
-        padding: 2px 8px;
-        border: 1px solid rgba(0,245,255,.2);
-        background: rgba(0,245,255,.04);
-        white-space: nowrap;
-    ">
-        <span style="font-size:9px; letter-spacing:.15em; color:var(--dim); font-family:'Orbitron',sans-serif;">SCAN-IN</span>
-        <span style="color:var(--border)">/</span>
-        <span id="scanner-shelf-label" style="color:var(--dim); font-style:italic;">— SELECT SHELF —</span>
-    </span>
-    <div style="display:flex; gap:8px; margin-left:auto; align-items:center; flex-wrap:wrap;">
+    <span id="sync-text">Live sync active</span>
+    <span>|</span>
+    <span>Rooms config: <span style="color:var(--success)">Online</span></span>
+    <span>|</span>
+    <span>Access: <strong>Local / Open</strong></span>
+    <div style="display:flex; gap:12px; margin-left:auto; align-items:center;">
         {% if room_info and shelves %}
-        <button class="btn-action btn-scan-start"
-            style="font-size:11px; padding:4px 12px; letter-spacing:.08em;"
+        <button class="btn-action" style="padding:6px 16px; border-radius:20px; font-size:13px;"
             data-room-id="{{ room_info[0] }}"
-            onclick="openScanModal(this.dataset.roomId)">&#128247; SCAN TO SHELF</button>
+            onclick="openScanModal(this.dataset.roomId)">Scan to Shelf</button>
         {% endif %}
-        <button class="btn-action" id="btn-shopping-list"
-            style="font-size:11px; padding:4px 12px; letter-spacing:.08em; border-color:var(--yellow); color:var(--yellow);"
-            onclick="openShoppingListModal()">&#128203; SHOPPING LISTS</button>
+        <button class="btn-secondary"
+            style="padding:6px 16px; border-radius:20px; font-size:13px; cursor:pointer;"
+            onclick="openStatsModal()">Library Stats</button>
     </div>
 </div>
 
 <div class="room-controls">
-    <div class="corner corner-tl"></div>
-    <div class="corner corner-tr"></div>
-    <div class="corner corner-bl"></div>
-    <div class="corner corner-br"></div>
-
     <div class="control-block">
-        <h3>Active Matrix Target</h3>
+        <h3>Active Library Room</h3>
         <form method="get" action="/" class="room-selector-form">
-            <select name="room_id" onchange="this.form.submit()">
+            <select name="room_id" onchange="this.form.submit()" style="flex:1;">
                 {% if not rooms %}
-                <option value="">[ NO ROOMS DETECTED ]</option>
+                <option value="">[ No rooms detected ]</option>
                 {% endif %}
                 {% for r in rooms %}
                 <option value="{{ r[0] }}" {% if r[0]==selected_room_id %}selected{% endif %}>
-                    {{ r[1] }} {% if r[2] == 1 %}(DEFAULT){% endif %}
+                    {{ r[1] }} {% if r[2] == 1 %}(Default){% endif %}
                 </option>
                 {% endfor %}
             </select>
         </form>
 
         {% if room_info %}
-        <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-            <span style="font-size: 11px; color: var(--dim)">SELECTED: <strong>{{ room_info[1] }}</strong></span>
+        <div style="margin-top: 16px; display: flex; gap: 12px; align-items: center;">
+            <span style="font-size: 13px; color: var(--dim)">Selected: <strong style="color:var(--text)">{{ room_info[1] }}</strong></span>
             {% if room_info[2] != 1 %}
             <form method="post" action="/api/rooms/{{ room_info[0] }}/set-default" style="display:inline;">
-                <button type="submit" class="btn-action btn-secondary" style="font-size:10px; padding:2px 6px;">SET AS
-                    DEFAULT</button>
+                <button type="submit" class="btn-secondary" style="font-size:11px; padding:4px 8px;">Set as Default</button>
             </form>
             {% endif %}
-            <button class="btn-action btn-secondary"
-                style="font-size:10px; padding:2px 8px; border-color:var(--magenta); color:var(--magenta);"
+            <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;"
                 data-room-id="{{ room_info[0] }}" data-room-name="{{ room_info[1] }}"
-                onclick="openEditRoom(this.dataset.roomId, this.dataset.roomName)">✎ EDIT ROOM</button>
+                onclick="openEditRoom(this.dataset.roomId, this.dataset.roomName)">Edit Room</button>
         </div>
         {% endif %}
     </div>
 
     <div class="control-block">
-        <h3>Construct New Storage Structure</h3>
-        <form method="post" action="/api/rooms" class="new-room-form">
-            <input type="text" name="name" placeholder="Room Name (e.g., Garage)" required>
-            <input type="number" name="shelf_count" placeholder="Shelves" value="4" min="1" max="20"
-                title="Number of Shelves">
-            <button type="submit" class="btn-action">BUILD</button>
+        <h3>Construct New Room</h3>
+        <form method="post" action="/api/rooms" class="new-room-form" style="display:flex; gap:8px;">
+            <input type="text" name="name" placeholder="Room Name (e.g., Office)" required style="flex:2;">
+            <input type="number" name="shelf_count" placeholder="Shelves" value="4" min="1" max="20" title="Number of Shelves" style="flex:1; width:80px;">
+            <button type="submit" class="btn-action" style="padding:0 16px;">Build</button>
         </form>
     </div>
 </div>
 
-<div class="search-section">
-    <input type="text" id="search-box" class="search-input-field"
-        placeholder="SCAN BARCODE OR QUERY MATCHING ATTRIBUTES OVER ACTIVE ZONE..." value="{{ q }}"
+<div class="search-section" style="margin-bottom:24px;">
+    <input type="text" id="search-box" style="width:100%; padding:12px 16px; font-size:15px; border-radius:24px;"
+        placeholder="Search books by title, author, ISBN, series, or genre..." value="{{ q }}"
         oninput="syncState()">
 </div>
 
 <div id="canvas-injection-point">
-    {% include '_item_cards.html' %}
+    {% include '_book_cards.html' %}
 </div>
 
-<div id="zoom-overlay" class="zoom-overlay">
+<div id="zoom-overlay" class="zoom-overlay" onclick="if(event.target === this) closeShelfZoom()">
     <div class="zoom-content">
         <div class="zoom-header">
-            <div class="zoom-title">SHELF FOCUS // TRACK #<span id="zoom-shelf-num">0</span></div>
+            <div class="zoom-title">Shelf Focus // Level <span id="zoom-shelf-num">0</span></div>
             <input type="hidden" id="zoom-shelf-id" value="">
-            <button class="close-zoom" onclick="closeShelfZoom()">DISENGAGE VIEW ✕</button>
+            <button class="close-zoom" onclick="closeShelfZoom()">×</button>
         </div>
         <div id="zoom-cards-container">
         </div>
@@ -115,140 +87,81 @@
 </div>
 
 <!-- Edit Room Modal -->
-<div id="edit-room-overlay" class="edit-room-overlay">
-    <div class="edit-room-content">
-        <button class="close-edit-room" onclick="closeEditRoom()">&#10005; CLOSE</button>
-        <h3>&#11041; MODIFY STORAGE STRUCTURE // <span id="edit-room-name-display">&mdash;</span></h3>
+<div id="edit-room-overlay" class="zoom-overlay" onclick="if(event.target === this) closeEditRoom()">
+    <div class="zoom-content" style="max-width:500px;">
+        <div class="zoom-header">
+            <div class="zoom-title">Modify Room: <span id="edit-room-name-display">&mdash;</span></div>
+            <button class="close-zoom" onclick="closeEditRoom()">×</button>
+        </div>
 
-        <!-- Add Shelves Section -->
-        <div class="edit-room-section">
-            <label>Expand Capacity: Add Shelves</label>
-            <form id="add-shelves-form" method="post" action="" class="add-shelves-row">
-                <input type="number" name="add_count" placeholder="+Qty" value="1" min="1" max="20"
-                    title="Number of shelves to add">
-                <button type="submit" class="btn-action">ADD SHELVES</button>
+        <div style="margin-bottom:24px;">
+            <label style="display:block; margin-bottom:8px; font-weight:500;">Expand Capacity: Add Shelves</label>
+            <form id="add-shelves-form" method="post" action="" style="display:flex; gap:8px;">
+                <input type="number" name="add_count" placeholder="+Qty" value="1" min="1" max="20" style="width:100px;">
+                <button type="submit" class="btn-action" style="padding:0 16px;">Add Shelves</button>
             </form>
         </div>
 
-        <!-- Danger Zone -->
-        <div class="edit-room-section">
-            <label>&#9888; Danger Zone</label>
+        <div style="border-top:1px dashed var(--border); padding-top:24px;">
+            <label style="display:block; margin-bottom:12px; font-weight:500; color:var(--danger);">Danger Zone</label>
             <form id="delete-room-form" method="post" action=""
-                onsubmit="return confirm('CONFIRM: Permanently delete this room and ALL its inventory data?')">
-                <button type="submit" class="btn-danger">&#10005; DELETE THIS ROOM</button>
+                onsubmit="return confirm('CONFIRM: Permanently delete this room and ALL its books?')">
+                <button type="submit" class="btn-danger" style="width:100%; padding:10px; border-radius:4px; cursor:pointer;">Delete This Room</button>
             </form>
         </div>
     </div>
 </div>
 
 <!-- Camera Scan Modal -->
-<div id="scan-overlay" class="scan-modal-overlay">
-    <div class="scan-modal-content">
-        <button class="close-scan-modal" onclick="closeScanModal()">&#10005; CLOSE</button>
-        <h3>&#9635; INTAKE SCAN // <span style="color:#00ff88">CAMERA MODE</span></h3>
+<div id="scan-overlay" class="zoom-overlay" onclick="if(event.target === this) closeScanModal()">
+    <div class="zoom-content" style="max-width:500px;">
+        <div class="zoom-header">
+            <div class="zoom-title">Intake Scan</div>
+            <button class="close-zoom" onclick="closeScanModal()">×</button>
+        </div>
 
-        <!-- Shelf selector -->
-        <div class="scan-section">
-            <label class="scan-label">Target Shelf</label>
-            <select id="scan-shelf-select" onchange="_updateScannerModeKey()">
+        <div style="margin-bottom:20px;">
+            <label style="display:block; margin-bottom:8px; font-weight:500;">Target Shelf</label>
+            <select id="scan-shelf-select" style="width:100%;">
                 {% if shelves %}
                 {% for shelf in shelves %}
-                <option value="{{ shelf[0] }}">LEVEL {{ shelf[1] }}</option>
+                <option value="{{ shelf[0] }}">Level {{ shelf[1] }}</option>
                 {% endfor %}
                 {% else %}
-                <option value="">[ NO SHELVES AVAILABLE ]</option>
+                <option value="">[ No shelves available ]</option>
                 {% endif %}
             </select>
         </div>
 
-        <!-- Camera viewfinder -->
-        <div class="cam-viewfinder" id="cam-viewfinder-wrap">
-            <div class="cam-viewfinder-idle" id="cam-idle-msg">[ CAMERA OFFLINE ]<br>Tap START SCAN to activate</div>
-            <div id="cam-reader"></div>
+        <div id="cam-viewfinder-wrap" style="width:100%; aspect-ratio:4/3; background:#000; border-radius:8px; overflow:hidden; position:relative; margin-bottom:20px; display:flex; align-items:center; justify-content:center;">
+            <div id="cam-idle-msg" style="color:#fff; text-align:center;">Camera Offline<br><span style="font-size:13px; opacity:0.7;">Tap Start Scan to activate</span></div>
+            <div id="cam-reader" style="position:absolute; inset:0;"></div>
         </div>
 
-        <!-- Status strip -->
-        <div id="scan-status" class="scan-status-bar">READY &mdash; SELECT A SHELF AND TAP START SCAN</div>
-
-        <!-- Last scan result -->
-        <div id="scan-result" class="scan-result-block" style="display:none;">
-            <div id="scan-result-badge" class="scan-result-badge">&#9635; ITEM LOGGED</div>
-            <div id="scan-result-name" class="scan-result-name"></div>
-            <div id="scan-result-qty" class="scan-result-qty"></div>
-            <button class="btn-action" style="font-size:11px; padding:5px 12px;"
-                onclick="triggerScanPhoto()">&#128247; CAPTURE ITEM PHOTO</button>
+        <div id="scan-status" style="text-align:center; margin-bottom:20px; font-size:14px; font-weight:500; color:var(--primary);">
+            Ready — Select a shelf and tap Start Scan
         </div>
 
-        <!-- Scan controls -->
-        <div class="scan-controls">
-            <button id="btn-start-scan" class="btn-action btn-scan-start"
-                onclick="startScan()">&#9654; START SCAN</button>
-            <button id="btn-stop-scan" class="btn-action btn-secondary"
-                style="display:none;" onclick="stopScan()">&#9632; STOP</button>
-            <!-- Fallback: shown automatically when live camera is unavailable (HTTP) -->
-            <button id="btn-file-scan" class="btn-action btn-scan-start"
-                style="display:none;" onclick="triggerBarcodeScan()">&#128247; SCAN BARCODE PHOTO</button>
+        <div id="scan-result" style="display:none; text-align:center; margin-bottom:20px; padding:16px; background:var(--bg2); border-radius:8px;">
+            <div style="color:var(--success); font-weight:600; margin-bottom:8px;">Book Logged</div>
+            <div id="scan-result-name" style="font-size:16px; font-weight:500; margin-bottom:12px;"></div>
+            <button class="btn-secondary" style="font-size:13px; padding:8px 16px; cursor:pointer;"
+                onclick="triggerScanPhoto()">Capture Custom Cover</button>
         </div>
 
-        <!-- Hidden file inputs -->
-        <!-- Barcode photo scanning fallback (works over plain HTTP) -->
+        <div style="display:flex; gap:12px; justify-content:center;">
+            <button id="btn-start-scan" class="btn-action" style="padding:10px 24px; border-radius:24px;" onclick="startScan()">Start Scan</button>
+            <button id="btn-stop-scan" class="btn-secondary" style="display:none; padding:10px 24px; border-radius:24px; cursor:pointer;" onclick="stopScan()">Stop Camera</button>
+            <button id="btn-file-scan" class="btn-action" style="display:none; padding:10px 24px; border-radius:24px;" onclick="triggerBarcodeScan()">Upload Photo</button>
+        </div>
+
         <input type="file" id="barcode-scan-file-input" accept="image/*" capture="environment" style="display:none;">
-        <!-- Photo uploads for item thumbnails -->
         <input type="file" id="scan-photo-input" accept="image/*" capture="environment" style="display:none;">
         <input type="file" id="item-photo-input" accept="image/*" capture="environment" style="display:none;">
     </div>
 </div>
 
-<!-- Shopping List Modal -->
-<div id="shopping-list-overlay" class="scan-modal-overlay">
-    <div class="scan-modal-content" style="max-width:520px;">
-        <button class="close-scan-modal" onclick="closeShoppingListModal()">&#10005; CLOSE</button>
-        <h3>&#128203; PROCUREMENT QUEUE // <span style="color:#00ff88;">SHOPPING LISTS</span></h3>
-
-        <!-- Status bar -->
-        <div id="sl-status-bar" class="sl-status-bar"></div>
-
-        <!-- List Tabs -->
-        <div id="sl-tabs" class="sl-tabs-row"></div>
-
-        <!-- Active List Header: store, actions, rename form -->
-        <div id="sl-list-header"></div>
-
-        <!-- Item Checklist -->
-        <div id="sl-items-container"></div>
-
-        <!-- Add Manual Item -->
-        <div class="sl-section-title">&#43; ADD ITEM TO LIST</div>
-        <div class="sl-add-row">
-            <input type="text" id="sl-add-barcode" placeholder="BARCODE *"
-                style="flex:1; min-width:70px; font-size:11px; padding:6px 8px;">
-            <input type="text" id="sl-add-name" placeholder="Name (optional)"
-                style="flex:2; min-width:90px; font-size:11px; padding:6px 8px;">
-            <input type="number" id="sl-add-qty" value="1" min="1"
-                style="width:48px; font-size:11px; padding:6px 4px;" title="Quantity">
-            <button class="btn-action" style="font-size:10px; padding:5px 10px; white-space:nowrap;"
-                onclick="addManualItem()">ADD</button>
-        </div>
-
-        <!-- Execute Restock -->
-        <button id="sl-restock-btn" class="sl-restock-btn" onclick="executeRestock()"
-            style="display:none;">&#9889; EXECUTE RESTOCK ROUTINE</button>
-
-        <!-- Create New List -->
-        <div class="sl-section-title" style="margin-top:16px;">&#43; CREATE NEW LIST</div>
-        <div class="sl-create-row">
-            <input type="text" id="sl-new-name" placeholder="List Name *"
-                style="flex:2; min-width:90px; font-size:11px; padding:6px 8px;">
-            <input type="text" id="sl-new-store" placeholder="Store (optional)"
-                style="flex:2; min-width:90px; font-size:11px; padding:6px 8px;">
-            <button class="btn-action" style="font-size:10px; padding:5px 10px;"
-                onclick="createList()">CREATE</button>
-        </div>
-    </div>
-</div>
-
 <script>
-    // ── Edit Room Modal ──
     window.openEditRoom = function(roomId, roomName) {
         document.getElementById('edit-room-name-display').textContent = roomName;
         document.getElementById('add-shelves-form').action = '/api/rooms/' + roomId + '/add-shelves';
@@ -260,100 +173,18 @@
         document.getElementById('edit-room-overlay').classList.remove('active');
     };
 
-    document.getElementById('edit-room-overlay').addEventListener('click', function(e) {
-        if (e.target === this) closeEditRoom();
-    });
-
-    // ── Camera Scan Modal ──
     let _qrScanner = null;
-    let _scanCooldown = false;
-    let _lastScannedItemId = null;
     let _scanRoomId = null;
-
-    // ── Scanner Mode Key: driven by live scanner.py state ──
-    // Polls /api/scanner-state every 3 s (same cadence as inventory sync).
-    // Falls back to reading the modal shelf-select when the physical scanner
-    // is offline (camera-only scanning workflow).
-    async function _pollScannerState() {
-        try {
-            const resp = await fetch('/api/scanner-state');
-            const s = await resp.json();
-            _applyScannerModeKey(s.online, s.mode, s.shelf_number);
-        } catch(e) {
-            // network error — leave key as-is
-        }
-    }
-
-    function _applyScannerModeKey(online, mode, shelfNumber) {
-        const label = document.getElementById('scanner-shelf-label');
-        const pill  = document.getElementById('scanner-mode-key');
-        const modeEl = pill ? pill.querySelector('span:first-child') : null;
-        if (!label || !pill || !modeEl) return;
-
-        if (!online) {
-            // Physical scanner offline — reflect camera modal selection instead
-            const select = document.getElementById('scan-shelf-select');
-            if (select && select.value && select.options[select.selectedIndex]) {
-                modeEl.textContent = 'SCAN-IN';
-                modeEl.style.color = 'var(--dim)';
-                label.textContent = select.options[select.selectedIndex].text.trim();
-                label.style.color = 'var(--cyan)';
-                label.style.fontStyle = 'normal';
-                label.style.textShadow = '0 0 6px rgba(0,245,255,.4)';
-                pill.style.borderColor = 'rgba(0,245,255,.2)';
-                pill.style.background  = 'rgba(0,245,255,.04)';
-            } else {
-                modeEl.textContent = 'SCAN-IN';
-                modeEl.style.color = 'var(--dim)';
-                label.textContent = '\u2014 SELECT SHELF \u2014';
-                label.style.color = 'var(--dim)';
-                label.style.fontStyle = 'italic';
-                label.style.textShadow = '';
-                pill.style.borderColor = 'rgba(0,245,255,.12)';
-                pill.style.background  = 'rgba(0,245,255,.02)';
-            }
-            return;
-        }
-
-        // Physical scanner IS online — show its real mode
-        if (mode === 'OUT') {
-            modeEl.textContent = 'SCAN-OUT';
-            modeEl.style.color = 'var(--magenta)';
-            modeEl.style.textShadow = '0 0 6px rgba(255,0,200,.6)';
-            pill.style.borderColor = 'rgba(255,0,200,.5)';
-            pill.style.background  = 'rgba(255,0,200,.07)';
-            label.style.color = 'var(--magenta)';
-            label.style.fontStyle = 'normal';
-            label.style.textShadow = '0 0 4px rgba(255,0,200,.4)';
-        } else {
-            modeEl.textContent = 'SCAN-IN';
-            modeEl.style.color = 'var(--cyan)';
-            modeEl.style.textShadow = '0 0 6px rgba(0,245,255,.6)';
-            pill.style.borderColor = 'rgba(0,245,255,.5)';
-            pill.style.background  = 'rgba(0,245,255,.08)';
-            label.style.color = 'var(--cyan)';
-            label.style.fontStyle = 'normal';
-            label.style.textShadow = '0 0 4px rgba(0,245,255,.4)';
-        }
-
-        label.textContent = shelfNumber ? 'LEVEL ' + shelfNumber : '\u2014 NO SHELF SET \u2014';
-    }
-
-    // Keep modal dropdown wired up for camera-only workflow
-    function _updateScannerModeKey() {
-        // Re-poll immediately so the key updates when the modal shelf changes
-        _pollScannerState();
-    }
+    let _lastScannedBookId = null;
 
     window.openScanModal = function(roomId) {
         _scanRoomId = roomId;
         document.getElementById('scan-result').style.display = 'none';
-        document.getElementById('scan-status').textContent = 'READY \u2014 SELECT A SHELF AND TAP START SCAN';
+        document.getElementById('scan-status').textContent = 'Ready — Select a shelf and tap Start Scan';
         document.getElementById('btn-start-scan').style.display = 'inline-block';
         document.getElementById('btn-stop-scan').style.display = 'none';
         document.getElementById('cam-idle-msg').style.display = 'block';
         document.getElementById('scan-overlay').classList.add('active');
-        _updateScannerModeKey();
     };
 
     window.closeScanModal = async function() {
@@ -370,14 +201,12 @@
                 { facingMode: 'environment' },
                 { fps: 10, qrbox: { width: 220, height: 180 } },
                 _onBarcode,
-                function() {} // silent per-frame misses
+                function() {} 
             );
             document.getElementById('btn-start-scan').style.display = 'none';
             document.getElementById('btn-stop-scan').style.display = 'inline-block';
-            _setScanStatus('SCANNING \u2014 AIM CAMERA AT BARCODE...');
+            _setScanStatus('Scanning — Aim camera at ISBN barcode...');
         } catch(err) {
-            // Live camera unavailable — most likely HTTP instead of HTTPS.
-            // Switch to photo-based barcode scanning which works over any protocol.
             _qrScanner = null;
             document.getElementById('cam-reader').innerHTML = '';
             document.getElementById('cam-idle-msg').style.display = 'block';
@@ -387,7 +216,7 @@
 
     window.stopScan = async function() {
         await _stopQr();
-        _setScanStatus('SCAN STOPPED');
+        _setScanStatus('Scan stopped');
     };
 
     async function _stopQr() {
@@ -398,339 +227,151 @@
         } catch(e) {}
         _qrScanner = null;
         document.getElementById('cam-reader').innerHTML = '';
-        document.getElementById('cam-idle-msg').style.display = 'block';
         document.getElementById('btn-start-scan').style.display = 'inline-block';
         document.getElementById('btn-stop-scan').style.display = 'none';
+        document.getElementById('cam-idle-msg').style.display = 'block';
     }
 
-    async function _onBarcode(barcode) {
+    function _setScanStatus(msg, isError=false) {
+        const el = document.getElementById('scan-status');
+        el.textContent = msg;
+        el.style.color = isError ? 'var(--danger)' : 'var(--primary)';
+    }
+
+    let _scanCooldown = false;
+    async function _onBarcode(decodedText) {
         if (_scanCooldown) return;
-        const shelfId = document.getElementById('scan-shelf-select').value;
-        if (!shelfId) { _setScanStatus('\u26a0 SELECT A TARGET SHELF FIRST'); return; }
-
         _scanCooldown = true;
-        _setScanStatus('BARCODE ACQUIRED: ' + barcode);
 
-        try {
-            const fd = new FormData();
-            fd.append('barcode', barcode);
-            fd.append('shelf_id', shelfId);
-            fd.append('room_id', _scanRoomId);
-            const resp = await fetch('/api/scan', { method: 'POST', body: fd });
-            const data = await resp.json();
-            if (data.error) throw new Error(data.error);
-
-            _lastScannedItemId = data.id;
-            document.getElementById('scan-result-badge').textContent = data.is_new ? '\u2b21 NEW ITEM LOGGED' : '\u2b21 QUANTITY UPDATED';
-            document.getElementById('scan-result-name').textContent = data.name;
-            document.getElementById('scan-result-qty').textContent = 'QTY ON SHELF: ' + data.quantity;
-            document.getElementById('scan-result').style.display = 'block';
-            _setScanStatus('\u2713 LOGGED // READY FOR NEXT SCAN...');
-        } catch(e) {
-            _setScanStatus('\u26a0 ERROR: ' + e.message);
+        const shelfId = document.getElementById('scan-shelf-select').value;
+        if (!shelfId) {
+            _setScanStatus('Error: No shelf selected!', true);
+            setTimeout(() => _scanCooldown = false, 2000);
+            return;
         }
 
-        setTimeout(function() { _scanCooldown = false; }, 2000);
+        _setScanStatus('Processing ISBN: ' + decodedText + '...');
+
+        try {
+            const formData = new FormData();
+            formData.append('barcode', decodedText);
+            formData.append('room_id', _scanRoomId);
+            formData.append('shelf_id', shelfId);
+
+            const resp = await fetch('/api/books/add', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!resp.ok) {
+                _setScanStatus('Server error scanning barcode.', true);
+            } else {
+                const data = await resp.json();
+                document.getElementById('scan-result-name').textContent = data.title;
+                document.getElementById('scan-result').style.display = 'block';
+                _setScanStatus('Success!');
+                _lastScannedBookId = data.id;
+            }
+        } catch (e) {
+            _setScanStatus('Network error connecting to server.', true);
+        }
+
+        setTimeout(() => _scanCooldown = false, 2500);
     }
 
-    function _setScanStatus(msg) {
-        document.getElementById('scan-status').textContent = msg;
-    }
-
-    // Photo-scan fallback: decode barcode from a captured image (works over HTTP)
     function _activateFileFallback() {
         document.getElementById('btn-start-scan').style.display = 'none';
-        document.getElementById('btn-stop-scan').style.display = 'none';
-        document.getElementById('btn-file-scan').style.display = 'flex';
-        _setScanStatus('\u26a0 LIVE SCAN UNAVAILABLE (HTTP only) \u2014 Use photo scan instead, or switch to HTTPS');
+        document.getElementById('btn-file-scan').style.display = 'inline-block';
+        _setScanStatus('Live camera requires HTTPS. Use photo upload instead.', true);
     }
 
     window.triggerBarcodeScan = function() {
         document.getElementById('barcode-scan-file-input').click();
     };
 
-    document.getElementById('barcode-scan-file-input').addEventListener('change', async function() {
-        if (!this.files[0]) return;
-        _setScanStatus('DECODING BARCODE FROM PHOTO...');
-        const tempScanner = new Html5Qrcode('cam-reader');
-        try {
-            const barcode = await tempScanner.scanFile(this.files[0], /* showImage= */ false);
-            tempScanner.clear();
-            document.getElementById('cam-reader').innerHTML = '';
-            await _onBarcode(barcode);
-        } catch(e) {
-            tempScanner.clear();
-            document.getElementById('cam-reader').innerHTML = '';
-            _setScanStatus('\u26a0 NO BARCODE FOUND \u2014 Try again, ensure barcode is in focus');
+    document.getElementById('barcode-scan-file-input').addEventListener('change', async (e) => {
+        if (e.target.files.length === 0) return;
+        _setScanStatus('Analyzing photo...');
+        if (!_qrScanner) {
+            _qrScanner = new Html5Qrcode('cam-reader');
         }
-        this.value = '';
+        try {
+            const decodedText = await _qrScanner.scanFile(e.target.files[0], true);
+            _onBarcode(decodedText);
+        } catch (err) {
+            _setScanStatus('No barcode found in image.', true);
+        }
+        e.target.value = '';
     });
 
-    // Photo capture helpers
     window.triggerScanPhoto = function() {
-        if (!_lastScannedItemId) return;
         document.getElementById('scan-photo-input').click();
     };
 
-    window.triggerItemPhoto = function(itemId) {
-        _lastScannedItemId = itemId;
+    document.getElementById('scan-photo-input').addEventListener('change', async (e) => {
+        if (e.target.files.length === 0 || !_lastScannedBookId) return;
+        const file = e.target.files[0];
+        
+        const btn = document.querySelector('#scan-result button');
+        const origText = btn.textContent;
+        btn.textContent = 'Uploading...';
+        btn.disabled = true;
+
+        const formData = new FormData();
+        formData.append('photo', file);
+
+        try {
+            const resp = await fetch('/api/books/' + _lastScannedBookId + '/cover', {
+                method: 'POST',
+                body: formData
+            });
+            if (resp.ok) {
+                btn.textContent = 'Upload Complete ✓';
+                setTimeout(() => {
+                    btn.textContent = origText;
+                    btn.disabled = false;
+                }, 2000);
+            } else {
+                btn.textContent = 'Upload Failed!';
+                setTimeout(() => {
+                    btn.textContent = origText;
+                    btn.disabled = false;
+                }, 2000);
+            }
+        } catch (err) {
+            btn.textContent = 'Error!';
+            setTimeout(() => {
+                btn.textContent = origText;
+                btn.disabled = false;
+            }, 2000);
+        }
+        e.target.value = '';
+    });
+
+    // Custom Item Photo from UI Card
+    let _activeBookPhotoId = null;
+    window.triggerBookCover = function(bookId) {
+        _activeBookPhotoId = bookId;
         document.getElementById('item-photo-input').click();
     };
 
-    async function _uploadPhoto(file, itemId) {
-        const fd = new FormData();
-        fd.append('photo', file);
-        const resp = await fetch('/api/items/' + itemId + '/photo', { method: 'POST', body: fd });
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error);
-        // Live-update any matching thumb already in DOM
-        const ts = '?t=' + Date.now();
-        document.querySelectorAll('.micro-thumb[data-item-id="' + itemId + '"] img').forEach(function(img) { img.src = data.photo_url + ts; });
-        document.querySelectorAll('.expanded-thumb[data-item-id="' + itemId + '"] img').forEach(function(img) { img.src = data.photo_url + ts; });
-        return data;
-    }
+    document.getElementById('item-photo-input').addEventListener('change', async (e) => {
+        if (e.target.files.length === 0 || !_activeBookPhotoId) return;
+        const file = e.target.files[0];
+        const formData = new FormData();
+        formData.append('photo', file);
 
-    document.getElementById('scan-photo-input').addEventListener('change', async function() {
-        if (!this.files[0] || !_lastScannedItemId) return;
-        _setScanStatus('UPLOADING PHOTO...');
         try {
-            await _uploadPhoto(this.files[0], _lastScannedItemId);
-            _setScanStatus('\u2713 PHOTO SAVED TO ASSET');
-        } catch(e) {
-            _setScanStatus('\u26a0 PHOTO ERROR: ' + e.message);
-        }
-        this.value = '';
+            await fetch('/api/books/' + _activeBookPhotoId + '/cover', {
+                method: 'POST',
+                body: formData
+            });
+            // Force reload via sync State
+            currentHash = null;
+        } catch(e) {}
+        e.target.value = '';
+        _activeBookPhotoId = null;
     });
 
-    document.getElementById('item-photo-input').addEventListener('change', async function() {
-        if (!this.files[0] || !_lastScannedItemId) return;
-        try {
-            await _uploadPhoto(this.files[0], _lastScannedItemId);
-        } catch(e) {
-            alert('Photo upload failed: ' + e.message);
-        }
-        this.value = '';
-    });
-
-    document.getElementById('scan-overlay').addEventListener('click', function(e) {
-        if (e.target === this) closeScanModal();
-    });
-
-    // ── Shopping List Modal ──────────────────────────────────────
-    let _activeListId = null;
-    let _slData = null;
-
-    window.openShoppingListModal = function() {
-        document.getElementById('shopping-list-overlay').classList.add('active');
-        loadShoppingLists();
-    };
-
-    window.closeShoppingListModal = function() {
-        document.getElementById('shopping-list-overlay').classList.remove('active');
-    };
-
-    document.getElementById('shopping-list-overlay').addEventListener('click', function(e) {
-        if (e.target === this) closeShoppingListModal();
-    });
-
-    async function loadShoppingLists() {
-        try {
-            const resp = await fetch('/api/shopping-lists');
-            _slData = await resp.json();
-            const lists = _slData.lists;
-            if (lists.length === 0) {
-                _activeListId = null;
-            } else if (!_activeListId || !lists.find(l => l.id === _activeListId)) {
-                _activeListId = (lists.find(l => l.is_default) || lists[0]).id;
-            }
-            _renderSlTabs(lists);
-            _renderSlItems(lists);
-        } catch(e) { console.error('Failed to load shopping lists', e); }
-    }
-
-    function _renderSlTabs(lists) {
-        const el = document.getElementById('sl-tabs');
-        if (!lists || lists.length === 0) {
-            el.innerHTML = '<div style="color:var(--dim);font-size:10px;padding:4px 0;">[ NO LISTS \u2014 CREATE ONE BELOW ]</div>';
-            return;
-        }
-        el.innerHTML = lists.map(l =>
-            `<button class="sl-tab ${l.id === _activeListId ? 'active' : ''}" onclick="window.switchList(${l.id})">${l.name}${l.is_default ? ' <span style="color:#00ff88;font-size:8px;">&#9670;</span>' : ''}</button>`
-        ).join('');
-    }
-
-    function _renderSlItems(lists) {
-        const activeList = lists && lists.find(l => l.id === _activeListId);
-        const container  = document.getElementById('sl-items-container');
-        const header     = document.getElementById('sl-list-header');
-        const restockBtn = document.getElementById('sl-restock-btn');
-
-        if (!activeList) {
-            header.innerHTML = '';
-            container.innerHTML = '<div style="color:var(--dim);font-size:11px;text-align:center;padding:20px 0;">[ SELECT OR CREATE A LIST ]</div>';
-            if (restockBtn) restockBtn.style.display = 'none';
-            return;
-        }
-
-        if (restockBtn) restockBtn.style.display = 'block';
-        const esc = s => s ? s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") : '';
-
-        header.innerHTML = `
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);">
-                ${activeList.store_name ? `<span style="font-size:10px;color:var(--dim);">&#128204; ${activeList.store_name}</span><span style="color:var(--border);">|</span>` : ''}
-                ${activeList.is_default
-                    ? '<span style="font-size:9px;color:#00ff88;letter-spacing:.1em;">&#9670; DEFAULT</span>'
-                    : `<button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;" onclick="window.setDefaultList(${activeList.id})">SET DEFAULT</button>`
-                }
-                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--cyan);color:var(--cyan);" onclick="window.showRenameForm(${activeList.id},'${esc(activeList.name)}','${esc(activeList.store_name)}')">&#9998; RENAME</button>
-                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--magenta);color:var(--magenta);" onclick="window.deleteList(${activeList.id})">&#10005; DELETE LIST</button>
-            </div>
-            <div id="sl-rename-form" style="display:none;margin-bottom:8px;padding:8px;background:rgba(0,245,255,0.03);border:1px dashed var(--border);">
-                <div style="font-size:9px;color:var(--dim);letter-spacing:.1em;margin-bottom:6px;font-family:'Orbitron',sans-serif;">RENAME LIST</div>
-                <input type="text" id="sl-rename-name" placeholder="List Name *" style="width:100%;margin-bottom:4px;font-size:11px;">
-                <input type="text" id="sl-rename-store" placeholder="Store (optional)" style="width:100%;margin-bottom:6px;font-size:11px;">
-                <div style="display:flex;gap:6px;">
-                    <button class="btn-action" style="font-size:10px;padding:3px 10px;" onclick="window.submitRename(${activeList.id})">SAVE</button>
-                    <button class="btn-action btn-secondary" style="font-size:10px;padding:3px 10px;" onclick="document.getElementById('sl-rename-form').style.display='none'">CANCEL</button>
-                </div>
-            </div>`;
-
-        if (!activeList.items || activeList.items.length === 0) {
-            container.innerHTML = '<div style="color:var(--dim);font-size:11px;text-align:center;padding:14px 0;border-bottom:1px solid var(--border);">[ QUEUE EMPTY \u2014 ADD ITEMS BELOW OR SET A LOW STOCK THRESHOLD ON AN ITEM ]</div>';
-            return;
-        }
-
-        container.innerHTML = `<ul class="sl-item-list">${activeList.items.map(item =>
-            `<li class="sl-item${item.is_completed ? ' completed' : ''}" data-sl-item-id="${item.id}">
-                <label class="sl-checkbox-label" title="${item.is_completed ? 'Mark incomplete' : 'Mark complete'}">
-                    <input type="checkbox" class="sl-checkbox" ${item.is_completed ? 'checked' : ''} onchange="window.toggleComplete(${item.id})">
-                    <span class="sl-checkmark"></span>
-                </label>
-                <div class="sl-item-info">
-                    <span class="sl-item-name">${item.name || item.barcode}</span>
-                    <span class="sl-item-barcode">${item.barcode}</span>
-                </div>
-                <span class="sl-item-qty">&#215;${item.requested_qty}</span>
-            </li>`
-        ).join('')}</ul>`;
-    }
-
-    window.switchList = function(listId) {
-        _activeListId = listId;
-        if (_slData) { _renderSlTabs(_slData.lists); _renderSlItems(_slData.lists); }
-    };
-
-    window.toggleComplete = async function(itemId) {
-        try {
-            await fetch('/api/shopping-lists/toggle-complete/' + itemId, { method: 'POST' });
-            await loadShoppingLists();
-        } catch(e) { console.error('Toggle failed', e); }
-    };
-
-    window.addManualItem = async function() {
-        const barcode = document.getElementById('sl-add-barcode').value.trim().toUpperCase();
-        const name    = document.getElementById('sl-add-name').value.trim();
-        const qty     = parseInt(document.getElementById('sl-add-qty').value) || 1;
-        if (!barcode || !_activeListId) { document.getElementById('sl-add-barcode').focus(); return; }
-        const fd = new FormData();
-        fd.append('list_id', _activeListId); fd.append('barcode', barcode);
-        fd.append('name', name || barcode);  fd.append('qty', qty);
-        try {
-            await fetch('/api/shopping-lists/add', { method: 'POST', body: fd });
-            document.getElementById('sl-add-barcode').value = '';
-            document.getElementById('sl-add-name').value    = '';
-            document.getElementById('sl-add-qty').value     = '1';
-            await loadShoppingLists();
-        } catch(e) { console.error('Add failed', e); }
-    };
-
-    window.createList = async function() {
-        const name  = document.getElementById('sl-new-name').value.trim();
-        const store = document.getElementById('sl-new-store').value.trim();
-        if (!name) { document.getElementById('sl-new-name').focus(); return; }
-        const fd = new FormData();
-        fd.append('name', name); fd.append('store_name', store);
-        try {
-            const resp = await fetch('/api/shopping-lists/create', { method: 'POST', body: fd });
-            const data = await resp.json();
-            _activeListId = data.list_id;
-            document.getElementById('sl-new-name').value  = '';
-            document.getElementById('sl-new-store').value = '';
-            await loadShoppingLists();
-        } catch(e) { console.error('Create list failed', e); }
-    };
-
-    window.setDefaultList = async function(listId) {
-        await fetch('/api/shopping-lists/' + listId + '/set-default', { method: 'POST' });
-        await loadShoppingLists();
-    };
-
-    window.showRenameForm = function(listId, currentName, currentStore) {
-        const form = document.getElementById('sl-rename-form');
-        if (!form) return;
-        if (form.style.display !== 'none') { form.style.display = 'none'; return; }
-        document.getElementById('sl-rename-name').value  = currentName  || '';
-        document.getElementById('sl-rename-store').value = currentStore || '';
-        form.style.display = 'block';
-    };
-
-    window.submitRename = async function(listId) {
-        const name  = document.getElementById('sl-rename-name').value.trim();
-        const store = document.getElementById('sl-rename-store').value.trim();
-        if (!name) return;
-        const fd = new FormData();
-        fd.append('name', name); fd.append('store_name', store);
-        await fetch('/api/shopping-lists/' + listId + '/rename', { method: 'POST', body: fd });
-        await loadShoppingLists();
-    };
-
-    window.deleteList = async function(listId) {
-        if (!confirm('DELETE this shopping list and ALL its items?\nThis cannot be undone.')) return;
-        await fetch('/api/shopping-lists/' + listId + '/delete', { method: 'POST' });
-        _activeListId = null;
-        await loadShoppingLists();
-    };
-
-    window.executeRestock = async function() {
-        if (!_activeListId) return;
-        const activeList = _slData && _slData.lists.find(l => l.id === _activeListId);
-        const completedCount = activeList ? activeList.items.filter(i => i.is_completed).length : 0;
-        if (completedCount === 0) {
-            _showSlStatus('[ NO COMPLETED ITEMS ]\nCheck off items before executing restock.', 'warn');
-            return;
-        }
-        const fd = new FormData();
-        fd.append('list_id', _activeListId);
-        try {
-            const resp = await fetch('/api/shopping-lists/commit', { method: 'POST', body: fd });
-            const data = await resp.json();
-            let msg = '\u2713 RESTOCK COMPLETE // ' + data.restocked.length + ' item(s) restocked';
-            if (data.unknown_barcodes && data.unknown_barcodes.length > 0) {
-                msg += '\n\n\u26A0 ' + data.unknown_barcodes.length + ' BARCODE(S) NOT YET IN INVENTORY:';
-                msg += '\n' + data.unknown_barcodes.map(u => '  \u2022 ' + (u.name || u.barcode)).join('\n');
-                msg += '\n\nScan these to a shelf first via SCAN TO SHELF, then commit again.';
-                _showSlStatus(msg, 'warn');
-            } else {
-                _showSlStatus(msg, 'ok');
-            }
-            await loadShoppingLists();
-        } catch(e) { _showSlStatus('\u26A0 RESTOCK FAILED: ' + e.message, 'error'); }
-    };
-
-    function _showSlStatus(msg, type) {
-        const el = document.getElementById('sl-status-bar');
-        if (!el) return;
-        el.textContent = msg;
-        el.className = 'sl-status-bar sl-status-' + type;
-        el.style.display = 'block';
-        if (type === 'ok') setTimeout(() => { el.style.display = 'none'; }, 5000);
-    }
-
-    // Initialize scanner mode key on page load and keep it live every 3 s
-    document.addEventListener('DOMContentLoaded', function() {
-        _pollScannerState();
-    });
-    setInterval(_pollScannerState, 3000);
 </script>
-
 {% endblock %}

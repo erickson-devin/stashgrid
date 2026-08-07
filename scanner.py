@@ -80,125 +80,31 @@ def _write_state():
 
 
 def add_scan(item_barcode, room_id, shelf_id):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-    with sqlite3.connect(DB) as conn:
-        # Match items living at this exact relational coordinate
-        existing = conn.execute("""
-            SELECT id FROM inventory
-            WHERE barcode = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
-        """, (item_barcode, room_id, shelf_id)).fetchone()
-
-        if existing:
-            conn.execute("""
-                UPDATE inventory
-                SET quantity = quantity + 1,
-                    updated_at = ?
-                WHERE id = ?
-            """, (now, existing[0]))
-            print(f"[+] Incrementing quantity for barcode: {item_barcode}")
+    print(f"[*] Dispatching ISBN {item_barcode} to backend API...")
+    try:
+        response = requests.post(
+            "http://127.0.0.1:5000/api/books/add",
+            data={
+                "barcode": item_barcode,
+                "room_id": room_id,
+                "shelf_id": shelf_id
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("is_new"):
+                print(f"[+] Added new book: {data.get('title')} (ISBN: {item_barcode})")
+            else:
+                print(f"[=] Re-scanned existing book: {data.get('title')}")
         else:
-            product_name = lookup_product_name(item_barcode) or "[ New Asset ]"
-            conn.execute("""
-                INSERT INTO inventory
-                (barcode, name, room_id, shelf_id, quantity, notes, updated_at, is_active)
-                VALUES (?, ?, ?, ?, 1, '', ?, 1)
-            """, (item_barcode, product_name, room_id, shelf_id, now))
-            print(f"[*] Registered new spatial item: {product_name} ({item_barcode})")
+            print(f"[!] Server returned error: {response.status_code} - {response.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"[!] Connection to backend API failed: {e}")
 
 def remove_scan(item_barcode, room_id, shelf_id):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    with sqlite3.connect(DB) as conn:
-        existing = conn.execute("""
-            SELECT id, quantity, name, low_stock_threshold, preferred_store FROM inventory
-            WHERE barcode = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
-        """, (item_barcode, room_id, shelf_id)).fetchone()
-
-        if not existing:
-            print(f"[!] Warning: Barcode {item_barcode} not found on this shelf. Cannot remove.")
-            return
-
-        item_id, quantity, item_name, threshold, preferred_store = existing
-
-        if quantity > 1:
-            conn.execute("""
-                UPDATE inventory
-                SET quantity = quantity - 1,
-                    updated_at = ?
-                WHERE id = ?
-            """, (now, item_id))
-            new_qty = quantity - 1
-            print(f"[-] Decremented quantity for barcode: {item_barcode}")
-        else:
-            # Soft delete matching your web application's rules
-            conn.execute("""
-                UPDATE inventory
-                SET quantity = 0,
-                    is_active = 0,
-                    removed_at = ?,
-                    removed_reason = 'Removed via Physical Scanner HUD'
-                WHERE id = ?
-            """, (now, item_id))
-            new_qty = 0
-            print(f"[✕] Final unit removed. Deactivating entry ID #{item_id}")
-
-        # Auto-add to shopping list if stock drops below threshold
-        if threshold and threshold > 0 and new_qty < threshold:
-            _auto_add_shopping_list(
-                conn, item_barcode, item_name or "[ Unknown Item ]",
-                preferred_store=preferred_store or "Costco"
-            )
-
-def _auto_add_shopping_list(conn, barcode, name, preferred_store="Costco"):
-    """Auto-insert a low-stock item into the best-matching shopping list (scanner context).
-    Resolution order:
-      1. A list whose store_name matches preferred_store (case-insensitive)
-      2. The list flagged is_default = 1
-      3. A newly-created list named after the preferred store
-    Expects an active sqlite3 connection already inside a with-block.
-    """
-    list_id = None
-
-    # 1. Match by preferred store name
-    if preferred_store:
-        match = conn.execute(
-            "SELECT id FROM shopping_lists WHERE LOWER(store_name) = LOWER(?) LIMIT 1",
-            (preferred_store,)
-        ).fetchone()
-        if match:
-            list_id = match[0]
-
-    # 2. Fall back to default list
-    if list_id is None:
-        default_list = conn.execute(
-            "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
-        ).fetchone()
-        if default_list:
-            list_id = default_list[0]
-
-    # 3. No lists exist — create one
-    if list_id is None:
-        cursor = conn.execute(
-            "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, 1)",
-            (preferred_store or "Shopping List", preferred_store or "")
-        )
-        list_id = cursor.lastrowid
-
-    existing = conn.execute(
-        "SELECT id FROM shopping_list_items WHERE list_id = ? AND barcode = ? AND is_completed = 0",
-        (list_id, barcode)
-    ).fetchone()
-
-    if not existing:
-        conn.execute(
-            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) "
-            "VALUES (?, ?, ?, 1, 0)",
-            (list_id, barcode, name)
-        )
-        print(f"[\U0001f6d2] Auto-added '{name}' ({barcode}) to '{preferred_store}' list (low stock)")
-
+    print("[!] Warning: Remove Mode is disabled for physical library scanning.")
+    print("    Please use the web interface to delete records.")
 
 def handle_scan(scanned):
     global current_room_id, current_shelf_id, scan_mode, mode_out_started
@@ -274,79 +180,12 @@ def enforce_mode_timeout():
             _write_state()
             print("MODE-OUT timed out after 5 minutes. Mode reset to IN.")
 
-def lookup_product_name(barcode):
-    if not barcode.isdigit():
-        return ""
-
-    return (
-        lookup_open_food_facts(barcode)
-        or lookup_upcitemdb(barcode)
-        or ""
-    )
-
-
-def lookup_open_food_facts(barcode):
-    url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
-
-    try:
-        response = requests.get(
-            url,
-            timeout=5,
-            headers={"User-Agent": "StorageInventoryPi/1.0"}
-        )
-
-        if response.status_code != 200:
-            return ""
-
-        data = response.json()
-
-        if data.get("status") == 1:
-            product = data.get("product", {})
-            name = (
-                product.get("product_name")
-                or product.get("generic_name")
-                or product.get("brands")
-            )
-
-            if name:
-                return name.strip()
-
-    except Exception as e:
-        print(f"OpenFoodFacts lookup failed for {barcode}: {e}")
-
-    return ""
-
-
-def lookup_upcitemdb(barcode):
-    url = f"https://api.upcitemdb.com/prod/trial/lookup?upc={barcode}"
-
-    try:
-        response = requests.get(
-            url,
-            timeout=5,
-            headers={"User-Agent": "StorageInventoryPi/1.0"}
-        )
-
-        if response.status_code != 200:
-            return ""
-
-        data = response.json()
-
-        items = data.get("items", [])
-        if items:
-            title = items[0].get("title")
-            if title:
-                return title.strip()
-
-    except Exception as e:
-        print(f"UPCitemDB lookup failed for {barcode}: {e}")
-
-    return ""
+# ── OLD API LOOKUPS REMOVED (Now handled centrally by app.py) ──
 
 device = InputDevice(SCANNER_DEVICE)
 
 print("==================================================")
-print("StashGrid Spatial Hardware Service Engine Active")
+print("ShelfGrid Hardware Scanner Engine Active")
 print("Awaiting location assignment scan sequence...")
 print("==================================================")
 

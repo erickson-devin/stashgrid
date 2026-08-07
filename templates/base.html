@@ -1,52 +1,46 @@
 <!doctype html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <title>Storage Inventory // SPATIAL HUD</title>
+    <title>ShelfGrid // Library Catalog</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
     <style>
         :root,
-        [data-theme="dark"] {
-            --cyan: #00f5ff;
-            --magenta: #ff00c8;
-            --yellow: #f5e642;
-            --bg0: #05070f;
-            --bg1: #0b0f1e;
-            --bg2: #101728;
-            --border: #1a2a4a;
-            --text: #c8d8f0;
-            --dim: #5a7090;
-            --grid-line: rgba(0, 245, 255, .04);
-            --scanline: rgba(0, 0, 0, .15);
-            --item-name-color: #fff;
-            --toggle-bg: #0b0f1e;
-            --toggle-border: #1a2a4a;
-        }
-
         [data-theme="light"] {
-            --cyan: #0077aa;
-            --magenta: #cc0077;
-            --yellow: #b07800;
-            --bg0: #eef2f7;
-            --bg1: #f8fafc;
-            --bg2: #e4eaf3;
-            --border: #c0cfe6;
-            --text: #1a2a45;
-            --dim: #5a7090;
-            --grid-line: rgba(0, 100, 180, .05);
-            --scanline: rgba(0, 0, 0, .03);
-            --item-name-color: #0a1628;
-            --toggle-bg: #f8fafc;
-            --toggle-border: #c0cfe6;
+            --primary: #2b3a4a;
+            --accent: #8b5a2b; /* Book leather brown */
+            --bg0: #f4f1ea; /* Old paper */
+            --bg1: #ffffff;
+            --bg2: #e9e4d8;
+            --border: #d4cfc1;
+            --text: #2c2c2c;
+            --dim: #6e6b62;
+            --item-name-color: #1a1a1a;
+            --toggle-bg: #e9e4d8;
+            --toggle-border: #d4cfc1;
+            --success: #3a7d44;
+            --danger: #b33939;
         }
 
-        *,
-        *::before,
-        *::after {
+        [data-theme="dark"] {
+            --primary: #c9b189;
+            --accent: #d29c62;
+            --bg0: #1a1918;
+            --bg1: #242220;
+            --bg2: #2d2a28;
+            --border: #3d3936;
+            --text: #e6e2db;
+            --dim: #969189;
+            --item-name-color: #f7f5f0;
+            --toggle-bg: #242220;
+            --toggle-border: #3d3936;
+            --success: #5da068;
+            --danger: #d9534f;
+        }
+
+        *, *::before, *::after {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
@@ -54,36 +48,15 @@
         }
 
         body {
-            font-family: 'Share Tech Mono', monospace;
+            font-family: 'Inter', sans-serif;
             background: var(--bg0);
             color: var(--text);
             min-height: 100vh;
             overflow-x: hidden;
-            position: relative;
-        }
-
-        body::before {
-            content: '';
-            position: fixed;
-            inset: 0;
-            background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-            background-size: 40px 40px;
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        body::after {
-            content: '';
-            position: fixed;
-            inset: 0;
-            background: repeating-linear-gradient(0deg, transparent, transparent 2px, var(--scanline) 2px, var(--scanline) 4px);
-            pointer-events: none;
-            z-index: 1;
+            line-height: 1.5;
         }
 
         .container {
-            position: relative;
-            z-index: 2;
             max-width: 1000px;
             margin: 0 auto;
             padding: 24px 20px 60px;
@@ -93,47 +66,30 @@
             display: flex;
             align-items: center;
             gap: 18px;
-            margin-bottom: 24px;
-            padding-bottom: 16px;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
             border-bottom: 1px solid var(--border);
-            position: relative;
-        }
-
-        header::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 0;
-            width: 40%;
-            height: 1px;
-            background: linear-gradient(90deg, var(--cyan), transparent);
-            box-shadow: 0 0 8px var(--cyan);
         }
 
         h1 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 24px;
-            font-weight: 900;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-            background: linear-gradient(90deg, var(--cyan), var(--magenta));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-family: 'Lora', serif;
+            font-size: 28px;
+            font-weight: 600;
+            color: var(--primary);
+            letter-spacing: 0.02em;
         }
 
         .sys-tag {
-            font-size: 11px;
-            letter-spacing: .2em;
+            font-size: 13px;
             color: var(--dim);
+            margin-top: 4px;
         }
 
         .status-bar {
             display: flex;
             align-items: center;
             gap: 14px;
-            font-size: 11px;
-            letter-spacing: .1em;
+            font-size: 13px;
             color: var(--dim);
             margin-bottom: 24px;
         }
@@ -142,23 +98,71 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #00ff88;
-            box-shadow: 0 0 8px #00ff88;
+            background: var(--success);
         }
 
-        /* Room Builder Panels */
+        /* Forms & Inputs */
+        select, input, textarea, button {
+            background: var(--bg1);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            outline: none;
+            border-radius: 4px;
+        }
+
+        select:focus, input:focus, textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .btn-action {
+            background: var(--accent);
+            border: 1px solid var(--accent);
+            color: #fff;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .btn-action:hover {
+            background: #7a4f25;
+            border-color: #7a4f25;
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border-color: var(--dim);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg2);
+        }
+
+        .btn-danger {
+            background: transparent;
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .btn-danger:hover {
+            background: rgba(179, 57, 57, 0.1);
+        }
+
+        /* Room Controls */
         .room-controls {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            gap: 24px;
             background: var(--bg1);
             border: 1px solid var(--border);
-            padding: 16px;
+            padding: 24px;
+            border-radius: 6px;
             margin-bottom: 24px;
-            position: relative;
         }
 
-        /* Responsive: stack panels on mobile */
         @media (max-width: 600px) {
             .room-controls {
                 grid-template-columns: 1fr;
@@ -166,12 +170,11 @@
         }
 
         .control-block h3 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 11px;
-            color: var(--cyan);
-            letter-spacing: .1em;
-            margin-bottom: 10px;
-            text-transform: uppercase;
+            font-family: 'Lora', serif;
+            font-size: 16px;
+            color: var(--primary);
+            margin-bottom: 12px;
+            font-weight: 600;
         }
 
         .room-selector-form {
@@ -179,158 +182,112 @@
             gap: 8px;
         }
 
-        select,
-        input,
-        textarea,
-        button {
-            background: var(--bg2);
-            color: var(--text);
-            border: 1px solid var(--border);
-            padding: 8px 12px;
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 13px;
-            outline: none;
-        }
-
-        textarea {
-            resize: vertical;
-        }
-
-        select:focus,
-        input:focus,
-        textarea:focus {
-            border-color: var(--cyan);
-        }
-
-        .spec-line {
-            font-size: 12px;
-            padding: 5px 0;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            gap: 8px;
-            color: var(--dim);
-        }
-
-        .spec-line strong,
-        .spec-line span:last-child {
-            color: var(--text);
-        }
-
-        select {
-            flex-grow: 1;
-            cursor: pointer;
-            color: var(--cyan);
-        }
-
-        .btn-action {
-            background: transparent;
-            border: 1px solid var(--cyan);
-            color: var(--cyan);
-            cursor: pointer;
-            text-transform: uppercase;
-            font-weight: bold;
-        }
-
-        .btn-action:hover {
-            background: rgba(0, 245, 255, .1);
-            box-shadow: 0 0 10px rgba(0, 245, 255, .2);
-        }
-
-        .btn-secondary {
-            border-color: var(--dim);
-            color: var(--dim);
-        }
-
-        .btn-secondary:hover {
-            background: rgba(90, 112, 144, .1);
-        }
-
-        /* Spatial Canvas Structure */
+        /* Shelves */
         .shelf-canvas {
             display: flex;
             flex-direction: column;
             gap: 24px;
-            margin-top: 20px;
+            margin-top: 24px;
         }
 
         .shelf-track {
             background: var(--bg1);
             border: 1px solid var(--border);
-            border-top: 3px solid var(--cyan);
-            padding: 14px 16px;
-            position: relative;
+            border-top: 4px solid var(--accent);
+            padding: 16px;
+            border-radius: 4px;
             cursor: pointer;
-            transition: transform .2s, border-color .2s, box-shadow .2s;
         }
 
         .shelf-track:hover {
-            border-color: var(--cyan);
-            box-shadow: 0 0 15px rgba(0, 245, 255, .1);
-            transform: translateY(-2px);
+            border-color: var(--accent);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
 
         .shelf-label {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 11px;
-            letter-spacing: .15em;
+            font-family: 'Lora', serif;
+            font-size: 14px;
             color: var(--dim);
-            text-transform: uppercase;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
 
         .shelf-label span.num {
-            color: var(--cyan);
-            font-weight: bold;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 16px;
         }
 
-        /* Row of Micro-chips inside a visual shelf */
         .shelf-items-row {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
-            min-height: 40px;
+            gap: 12px;
+            min-height: 48px;
             align-items: center;
         }
 
         .item-micro-chip {
             background: var(--bg2);
             border: 1px solid var(--border);
-            border-left: 2px solid var(--magenta);
-            padding: 6px 10px;
+            border-left: 3px solid var(--primary);
+            padding: 8px 12px;
+            border-radius: 4px;
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 12px;
+            gap: 12px;
+            font-size: 13px;
             pointer-events: none;
-        }
-
-        .micro-qty {
-            color: var(--yellow);
-            font-weight: bold;
         }
 
         .micro-name {
             color: var(--item-name-color);
             overflow: hidden;
             text-overflow: ellipsis;
-            max-width: 120px;
+            max-width: 150px;
             white-space: nowrap;
+            font-weight: 500;
         }
 
-        /* Modal / Zoom Overlay System */
+        .micro-thumb {
+            width: 32px;
+            height: 48px;
+            flex-shrink: 0;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 2px;
+        }
+
+        .micro-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .micro-thumb-fallback {
+            width: 100%;
+            height: 100%;
+            background: var(--bg2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--dim);
+            text-transform: uppercase;
+        }
+
+        /* Modal Overlay */
         .zoom-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(3, 5, 12, .9);
+            background: rgba(0, 0, 0, .5);
             z-index: 200;
             display: none;
             align-items: center;
             justify-content: center;
             padding: 20px;
-            backdrop-filter: blur(4px);
+            backdrop-filter: blur(2px);
         }
 
         .zoom-overlay.active {
@@ -338,15 +295,16 @@
         }
 
         .zoom-content {
-            background: var(--bg1);
-            border: 2px solid var(--cyan);
+            background: var(--bg0);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             width: 100%;
-            max-width: 750px;
+            max-width: 800px;
             max-height: 85vh;
             overflow-y: auto;
             position: relative;
-            padding: 24px;
-            box-shadow: 0 0 40px rgba(0, 245, 255, .25);
+            padding: 32px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
         }
 
         .zoom-header {
@@ -354,482 +312,47 @@
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid var(--border);
-            padding-bottom: 12px;
-            margin-bottom: 20px;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
         }
 
         .zoom-title {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 18px;
-            color: var(--cyan);
-            text-transform: uppercase;
-            letter-spacing: .1em;
+            font-family: 'Lora', serif;
+            font-size: 20px;
+            color: var(--primary);
+            font-weight: 600;
         }
 
         .close-zoom {
             background: transparent;
-            border: 1px solid var(--magenta);
-            color: var(--magenta);
-            font-size: 12px;
+            border: none;
+            color: var(--dim);
+            font-size: 24px;
             cursor: pointer;
-            padding: 4px 10px;
+            padding: 0 8px;
         }
-
+        
         .close-zoom:hover {
-            background: rgba(255, 0, 200, .1);
+            color: var(--text);
         }
 
         /* Expanded Item Cards */
         .item-card-expanded {
-            background: var(--bg2);
-            border: 1px solid var(--border);
-            border-left: 3px solid var(--cyan);
-            padding: 16px;
-            margin-bottom: 12px;
-        }
-
-        .expanded-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-            margin: 12px 0;
-        }
-
-        .field-label {
-            font-size: 9px;
-            letter-spacing: .15em;
-            text-transform: uppercase;
-            color: var(--dim);
-        }
-
-        .field-value {
-            font-size: 13px;
-            margin-top: 2px;
-        }
-
-        .field-value.qty {
-            color: var(--yellow);
-            font-weight: bold;
-            font-size: 16px;
-        }
-
-        .field-value.barcode {
-            color: var(--magenta);
-        }
-
-        .edit-form {
-            display: none;
-            margin-top: 14px;
-            padding-top: 12px;
-            border-top: 1px dashed var(--border);
-        }
-
-        .edit-form.open {
-            display: block;
-        }
-
-        .edit-form input {
-            width: 100%;
-            margin-bottom: 8px;
-        }
-
-        /* Utilities */
-        .corner {
-            position: absolute;
-            width: 6px;
-            height: 6px;
-        }
-
-        .corner-tl {
-            top: -1px;
-            left: -1px;
-            border-top: 2px solid var(--cyan);
-            border-left: 2px solid var(--cyan);
-        }
-
-        .corner-tr {
-            top: -1px;
-            right: -1px;
-            border-top: 2px solid var(--cyan);
-            border-right: 2px solid var(--cyan);
-        }
-
-        .corner-bl {
-            bottom: -1px;
-            left: -1px;
-            border-bottom: 2px solid var(--cyan);
-            border-left: 2px solid var(--cyan);
-        }
-
-        .corner-br {
-            bottom: -1px;
-            right: -1px;
-            border-bottom: 2px solid var(--cyan);
-            border-right: 2px solid var(--cyan);
-        }
-
-        #theme-toggle {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 100;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            border: 1px solid var(--border);
-            background: var(--bg1);
-            color: var(--cyan);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-        }
-
-        .empty-canvas {
-            text-align: center;
-            padding: 40px;
-            color: var(--dim);
-            border: 1px dashed var(--border);
-            text-transform: uppercase;
-            font-size: 13px;
-        }
-
-        .search-section {
-            margin-bottom: 20px;
-        }
-
-        .search-input-field {
-            width: 100%;
-            padding: 12px;
-            color: var(--cyan);
             background: var(--bg1);
             border: 1px solid var(--border);
-            font-family: 'Share Tech Mono', monospace;
-        }
-
-        /* New-room form: responsive flex */
-        .new-room-form {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
-
-        .new-room-form input[name="name"] {
-            flex: 1 1 160px;
-            min-width: 0;
-        }
-
-        .new-room-form input[name="shelf_count"] {
-            width: 70px;
-            flex: 0 0 70px;
-        }
-
-        .new-room-form .btn-action {
-            flex: 0 0 auto;
-        }
-
-        /* Edit Room Modal */
-        .edit-room-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(3, 5, 12, .92);
-            z-index: 300;
-            display: none;
-            align-items: center;
-            justify-content: center;
+            border-radius: 6px;
             padding: 20px;
-            backdrop-filter: blur(6px);
-        }
-
-        .edit-room-overlay.active {
+            margin-bottom: 16px;
             display: flex;
-        }
-
-        .edit-room-content {
-            background: var(--bg1);
-            border: 2px solid var(--magenta);
-            width: 100%;
-            max-width: 460px;
-            position: relative;
-            padding: 24px;
-            box-shadow: 0 0 40px rgba(255, 0, 200, .25);
-        }
-
-        .edit-room-content h3 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 13px;
-            color: var(--magenta);
-            letter-spacing: .12em;
-            text-transform: uppercase;
-            margin-bottom: 18px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .edit-room-section {
-            margin-bottom: 18px;
-        }
-
-        .edit-room-section label {
-            display: block;
-            font-size: 10px;
-            letter-spacing: .15em;
-            text-transform: uppercase;
-            color: var(--dim);
-            margin-bottom: 6px;
-        }
-
-        .add-shelves-row {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-        }
-
-        .add-shelves-row input {
-            width: 80px;
-            flex: 0 0 80px;
-        }
-
-        .btn-danger {
-            background: transparent;
-            border: 1px solid #ff3860;
-            color: #ff3860;
-            cursor: pointer;
-            text-transform: uppercase;
-            font-weight: bold;
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 13px;
-            padding: 8px 12px;
-            width: 100%;
-        }
-
-        .btn-danger:hover {
-            background: rgba(255, 56, 96, .12);
-            box-shadow: 0 0 10px rgba(255, 56, 96, .25);
-        }
-
-        .close-edit-room {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            background: transparent;
-            border: 1px solid var(--dim);
-            color: var(--dim);
-            font-size: 12px;
-            cursor: pointer;
-            padding: 3px 8px;
-        }
-
-        .close-edit-room:hover {
-            border-color: var(--magenta);
-            color: var(--magenta);
-        }
-
-        /* ── Camera Scan Modal ── */
-        .scan-modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(3, 5, 12, .93);
-            z-index: 400;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            padding: 16px;
-            backdrop-filter: blur(6px);
-        }
-
-        .scan-modal-overlay.active {
-            display: flex;
-        }
-
-        .scan-modal-content {
-            background: var(--bg1);
-            border: 2px solid #00ff88;
-            width: 100%;
-            max-width: 480px;
-            max-height: 92vh;
-            overflow-y: auto;
-            position: relative;
-            padding: 20px 18px;
-            box-shadow: 0 0 50px rgba(0, 255, 136, .2);
-        }
-
-        .scan-modal-content h3 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 11px;
-            color: #00ff88;
-            letter-spacing: .12em;
-            text-transform: uppercase;
-            margin-bottom: 14px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--border);
-            padding-right: 32px;
-        }
-
-        .close-scan-modal {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            background: transparent;
-            border: 1px solid var(--dim);
-            color: var(--dim);
-            font-size: 12px;
-            cursor: pointer;
-            padding: 3px 8px;
-            font-family: 'Share Tech Mono', monospace;
-        }
-
-        .close-scan-modal:hover {
-            border-color: #00ff88;
-            color: #00ff88;
-        }
-
-        .scan-section {
-            margin-bottom: 12px;
-        }
-
-        .scan-label {
-            display: block;
-            font-size: 10px;
-            letter-spacing: .15em;
-            text-transform: uppercase;
-            color: var(--dim);
-            margin-bottom: 5px;
-        }
-
-        .cam-viewfinder {
-            position: relative;
-            background: #000;
-            width: 100%;
-            min-height: 230px;
-            margin-bottom: 10px;
-            border: 1px solid rgba(0, 255, 136, .3);
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .cam-viewfinder-idle {
-            color: var(--dim);
-            font-size: 11px;
-            letter-spacing: .1em;
-            text-align: center;
-            padding: 20px;
-        }
-
-        /* Suppress html5-qrcode injected UI that conflicts with our own */
-        #cam-reader {
-            width: 100% !important;
-            border: none !important;
-        }
-
-        #cam-reader video {
-            width: 100% !important;
-            height: auto !important;
-            display: block;
-        }
-
-        #cam-reader img { display: none !important; }
-        #cam-reader__header_message { display: none !important; }
-        #cam-reader__status_span { display: none !important; }
-        #cam-reader__dashboard_section_swaplink { display: none !important; }
-
-        .scan-status-bar {
-            font-size: 11px;
-            letter-spacing: .07em;
-            color: #00ff88;
-            background: rgba(0, 255, 136, .05);
-            border: 1px solid rgba(0, 255, 136, .2);
-            padding: 7px 10px;
-            margin-bottom: 10px;
-            min-height: 32px;
-            font-family: 'Share Tech Mono', monospace;
-            word-break: break-all;
-        }
-
-        .scan-result-block {
-            background: rgba(0, 255, 136, .04);
-            border: 1px solid rgba(0, 255, 136, .25);
-            border-left: 3px solid #00ff88;
-            padding: 10px 12px;
-            margin-bottom: 10px;
-        }
-
-        .scan-result-badge {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 9px;
-            letter-spacing: .2em;
-            text-transform: uppercase;
-            color: #00ff88;
-            margin-bottom: 4px;
-        }
-
-        .scan-result-name {
-            font-size: 14px;
-            color: var(--item-name-color);
-            font-weight: bold;
-            margin-bottom: 2px;
-        }
-
-        .scan-result-qty {
-            font-size: 11px;
-            color: var(--yellow);
-            margin-bottom: 8px;
-        }
-
-        .scan-controls {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-        }
-
-        .btn-scan-start {
-            border-color: #00ff88 !important;
-            color: #00ff88 !important;
-            flex: 1;
-        }
-
-        .btn-scan-start:hover {
-            background: rgba(0, 255, 136, .1) !important;
-            box-shadow: 0 0 12px rgba(0, 255, 136, .2) !important;
-        }
-
-        /* ── Item Thumbnails ── */
-        .micro-thumb {
-            width: 34px;
-            height: 34px;
-            flex-shrink: 0;
-            overflow: hidden;
-            border: 1px solid var(--border);
-        }
-
-        .micro-thumb img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-        }
-
-        .micro-thumb-fallback {
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, var(--bg2), rgba(0, 245, 255, .08));
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--dim);
+            gap: 20px;
         }
 
         .expanded-thumb {
-            width: 74px;
-            height: 74px;
+            width: 100px;
+            height: 150px;
             flex-shrink: 0;
             border: 1px solid var(--border);
+            border-radius: 4px;
             overflow: hidden;
         }
 
@@ -837,239 +360,201 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            display: block;
         }
 
         .expanded-thumb-fallback {
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, var(--bg2), rgba(0, 245, 255, .07));
+            background: var(--bg2);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 26px;
-            font-weight: 700;
             color: var(--dim);
+            font-size: 12px;
+            text-align: center;
         }
 
-        /* ── Shopping List Modal ── */
-        .sl-tabs-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
+        .expanded-details {
+            flex-grow: 1;
+        }
+
+        .book-title-lg {
+            font-family: 'Lora', serif;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
+
+        .book-author-lg {
+            font-size: 14px;
+            color: var(--accent);
             margin-bottom: 12px;
         }
 
-        .sl-tab {
-            background: transparent;
-            border: 1px solid var(--border);
+        .expanded-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+            margin: 16px 0;
+        }
+
+        .field-label {
+            font-size: 11px;
             color: var(--dim);
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 10px;
-            letter-spacing: .1em;
-            padding: 4px 12px;
-            cursor: pointer;
             text-transform: uppercase;
-            transition: border-color .2s, color .2s, background .2s;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
         }
 
-        .sl-tab:hover {
-            border-color: var(--cyan);
-            color: var(--cyan);
+        .field-val {
+            font-size: 14px;
+            color: var(--text);
         }
 
-        .sl-tab.active {
-            border-color: var(--magenta);
-            color: var(--magenta);
-            background: rgba(255, 0, 200, .08);
-            box-shadow: 0 0 8px rgba(255, 0, 200, .15);
-        }
-
-        .sl-item-list {
-            list-style: none;
-            margin: 0 0 8px 0;
-            padding: 0;
-            max-height: 240px;
-            overflow-y: auto;
-        }
-
-        .sl-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 7px 0;
-            border-bottom: 1px solid var(--border);
-            transition: opacity .25s;
-        }
-
-        .sl-item.completed {
-            opacity: 0.38;
-        }
-
-        .sl-item.completed .sl-item-name {
-            text-decoration: line-through;
-            color: var(--dim);
-        }
-
-        .sl-checkbox-label {
-            display: flex;
-            align-items: center;
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        .sl-checkbox { display: none; }
-
-        .sl-checkmark {
-            width: 16px;
-            height: 16px;
+        .edit-form {
+            display: none;
+            background: var(--bg2);
+            padding: 16px;
+            margin-top: 16px;
+            border-radius: 4px;
             border: 1px solid var(--border);
+        }
+
+        .edit-form.open {
+            display: block;
+        }
+
+        .edit-form label {
+            display: block;
+            font-size: 12px;
+            color: var(--dim);
+            margin-bottom: 4px;
+            margin-top: 12px;
+        }
+
+        .edit-form input, .edit-form select, .edit-form textarea {
+            width: 100%;
+        }
+
+        .action-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .photo-upload-form {
+            margin-top: 16px;
+            padding: 12px;
+            background: var(--bg2);
+            border: 1px dashed var(--border);
+            border-radius: 4px;
+        }
+
+        #theme-toggle {
+            position: absolute;
+            top: 24px;
+            right: 20px;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px;
+            border-radius: 50%;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: border-color .2s, background .2s, box-shadow .2s;
-            font-size: 10px;
         }
 
-        .sl-checkbox:checked + .sl-checkmark {
-            border-color: #00ff88;
-            background: rgba(0, 255, 136, .12);
-            box-shadow: 0 0 6px rgba(0, 255, 136, .35);
-            color: #00ff88;
+        #theme-toggle:hover {
+            border-color: var(--accent);
         }
 
-        .sl-checkbox:checked + .sl-checkmark::after {
-            content: '✓';
+        /* Stats Modal */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
         }
-
-        .sl-item-info {
-            flex: 1;
-            min-width: 0;
+        .stat-box {
+            background: var(--bg1);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            text-align: center;
         }
-
-        .sl-item-name {
-            display: block;
-            font-size: 12px;
-            color: var(--text);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .sl-item-barcode {
-            display: block;
-            font-size: 9px;
-            color: var(--magenta);
-            letter-spacing: .08em;
-            margin-top: 1px;
-        }
-
-        .sl-item-qty {
-            font-size: 12px;
-            color: var(--yellow);
-            font-weight: bold;
-            flex-shrink: 0;
-        }
-
-        .sl-restock-btn {
-            width: 100%;
-            padding: 11px;
-            background: transparent;
-            border: 2px solid var(--yellow);
-            color: var(--yellow);
-            font-family: 'Orbitron', sans-serif;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: .18em;
-            cursor: pointer;
-            text-transform: uppercase;
-            margin-top: 12px;
-            transition: background .2s, box-shadow .2s;
-        }
-
-        .sl-restock-btn:hover {
-            background: rgba(245, 230, 66, .1);
-            box-shadow: 0 0 20px rgba(245, 230, 66, .2);
-        }
-
-        .sl-status-bar {
-            font-size: 11px;
-            padding: 8px 10px;
-            margin-bottom: 8px;
-            font-family: 'Share Tech Mono', monospace;
-            white-space: pre-line;
-            line-height: 1.5;
-            display: none;
-        }
-
-        .sl-status-ok {
-            color: #00ff88;
-            background: rgba(0, 255, 136, .05);
-            border: 1px solid rgba(0, 255, 136, .25);
-        }
-
-        .sl-status-warn {
-            color: var(--yellow);
-            background: rgba(245, 230, 66, .05);
-            border: 1px solid rgba(245, 230, 66, .3);
-        }
-
-        .sl-status-error {
-            color: var(--magenta);
-            background: rgba(255, 0, 200, .05);
-            border: 1px solid rgba(255, 0, 200, .25);
-        }
-
-        .sl-section-title {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 9px;
-            letter-spacing: .15em;
+        .stat-box h4 {
+            font-family: 'Lora', serif;
             color: var(--dim);
+            font-size: 12px;
             text-transform: uppercase;
-            margin: 12px 0 6px;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
         }
-
-        .sl-add-row {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            align-items: stretch;
+        .stat-box .val {
+            font-size: 24px;
+            color: var(--primary);
+            font-weight: 600;
         }
-
-        .sl-create-row {
+        .stats-lists {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+        .stat-list h4 {
+            font-family: 'Lora', serif;
+            color: var(--primary);
+            font-size: 14px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 4px;
+        }
+        .stat-list ul {
+            list-style: none;
+        }
+        .stat-list li {
+            font-size: 13px;
             display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            align-items: stretch;
-            padding-top: 10px;
-            border-top: 1px dashed var(--border);
-            margin-top: 10px;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .stat-list li span:last-child {
+            color: var(--accent);
+            font-weight: 500;
         }
     </style>
-
 </head>
-
 <body>
     <div class="container">
         <header>
-            <svg width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="display:block; flex-shrink:0;">
-                <rect x="5" y="5" width="90" height="90" fill="none" stroke="var(--cyan)" stroke-width="5" />
-                <line x1="27.5" y1="5" x2="27.5" y2="95" stroke="var(--border)" stroke-width="2" />
-                <line x1="50" y1="5" x2="50" y2="95" stroke="var(--border)" stroke-width="2" />
-                <line x1="72.5" y1="5" x2="72.5" y2="95" stroke="var(--border)" stroke-width="2" />
-                <line x1="5" y1="27.5" x2="95" y2="27.5" stroke="var(--border)" stroke-width="2" />
-                <line x1="5" y1="50" x2="95" y2="50" stroke="var(--border)" stroke-width="2" />
-                <line x1="5" y1="72.5" x2="95" y2="72.5" stroke="var(--border)" stroke-width="2" />
-                <circle cx="50" cy="50" r="4" fill="var(--magenta)" />
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
             </svg>
             <div>
-                <h1>StashGrid // Spatial HUD</h1>
-                <div class="sys-tag">COM-LINK ACTIVE // NODE DELTA</div>
+                <h1>ShelfGrid</h1>
+                <div class="sys-tag">Library Catalog Interface</div>
             </div>
         </header>
         <button id="theme-toggle" onclick="toggleTheme()">☀</button>
         {% block content %}{% endblock %}
+    </div>
+
+    <!-- Stats Modal -->
+    <div class="zoom-overlay" id="stats-overlay" onclick="if(event.target === this) closeStatsModal()">
+        <div class="zoom-content" style="max-width: 900px;">
+            <div class="zoom-header">
+                <div class="zoom-title">Library Statistics</div>
+                <button class="close-zoom" onclick="closeStatsModal()">×</button>
+            </div>
+            
+            <div id="stats-container">
+                <div style="text-align:center; padding:40px; color:var(--dim);">Loading stats...</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1078,53 +563,50 @@
         const roomId = urlParams.get('room_id') || '';
 
         function toggleTheme() {
-            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            const current = document.documentElement.getAttribute('data-theme') || 'light';
             const next = current === 'dark' ? 'light' : 'dark';
             document.documentElement.setAttribute('data-theme', next);
-            localStorage.setItem('cyberTheme', next);
+            localStorage.setItem('libraryTheme', next);
         }
 
-        if (localStorage.getItem('cyberTheme')) {
-            document.documentElement.setAttribute('data-theme', localStorage.getItem('cyberTheme'));
+        if (localStorage.getItem('libraryTheme')) {
+            document.documentElement.setAttribute('data-theme', localStorage.getItem('libraryTheme'));
+        } else {
+            // Default to light theme for a clean library aesthetic
+            document.documentElement.setAttribute('data-theme', 'light');
         }
 
         // Real-time Live Sync Polling Engine
         async function syncState() {
             try {
                 const q = document.getElementById('search-box')?.value || '';
-                const response = await fetch(`/api/inventory-hash?room_id=${roomId}&q=${encodeURIComponent(q)}`);
+                const response = await fetch(`/api/library-hash?room_id=${roomId}&q=${encodeURIComponent(q)}`);
                 const data = await response.json();
 
                 if (currentHash && data.hash !== currentHash) {
-                    document.getElementById('sync-text').innerText = "SYNCING CHANGES...";
-                    const itemsResponse = await fetch(`/api/items?room_id=${roomId}&q=${encodeURIComponent(q)}`);
-                    const itemsData = await itemsResponse.json();
+                    document.getElementById('sync-text').innerText = "Syncing changes...";
+                    const booksResponse = await fetch(`/api/books?room_id=${roomId}&q=${encodeURIComponent(q)}`);
+                    const booksData = await booksResponse.json();
 
                     // Preserve active shelf zoom focus while content live-reloads
                     const activeZoomShelfId = document.getElementById('zoom-overlay').classList.contains('active') ? document.getElementById('zoom-shelf-id').value : null;
 
-                    document.getElementById('canvas-injection-point').innerHTML = itemsData.html;
+                    document.getElementById('canvas-injection-point').innerHTML = booksData.html;
 
                     if (activeZoomShelfId) {
                         reEstablishZoom(activeZoomShelfId);
                     }
 
-                    // If the shopping list modal is open, pull fresh data so remote
-                    // changes (checked items, new lists, deletions) appear instantly.
-                    if (document.getElementById('shopping-list-overlay').classList.contains('active')) {
-                        loadShoppingLists();
-                    }
-
-                    document.getElementById('sync-text').innerText = "LIVE SYNC: ACTIVE";
+                    document.getElementById('sync-text').innerText = "Live sync active";
                 }
                 currentHash = data.hash;
             } catch (e) {
-                document.getElementById('sync-text').innerText = "COM-LINK ERROR";
+                document.getElementById('sync-text').innerText = "Connection error";
             }
         }
 
         // Trigger initialization
-        fetch(`/api/inventory-hash?room_id=${roomId}`).then(r => r.json()).then(d => { currentHash = d.hash; });
+        fetch(`/api/library-hash?room_id=${roomId}`).then(r => r.json()).then(d => { currentHash = d.hash; });
         setInterval(syncState, 3000);
 
         // Structural UI interactions
@@ -1138,7 +620,7 @@
             container.innerHTML = '';
 
             if (sourceCards.length === 0) {
-                container.innerHTML = '<div style="color:var(--dim); text-align:center; padding:20px;">NO ITEMS CURRENTLY ON THIS SHELF.</div>';
+                container.innerHTML = '<div style="color:var(--dim); text-align:center; padding:20px;">No books currently on this shelf.</div>';
             } else {
                 sourceCards.forEach(card => {
                     container.appendChild(card.cloneNode(true));
@@ -1151,7 +633,6 @@
             document.getElementById('zoom-overlay').classList.remove('active');
         };
 
-        // FIX: Converted hyphenated function name to standard camelCase variable mapping
         function reEstablishZoom(shelfId) {
             const sourceCards = document.querySelectorAll(`.hidden-cards-vault[data-shelf-id="${shelfId}"] .item-card-expanded`);
             const container = document.getElementById('zoom-cards-container');
@@ -1159,12 +640,61 @@
             sourceCards.forEach(card => { container.appendChild(card.cloneNode(true)); });
         }
 
-        window.toggleExpandEdit = function (btn, itemId) {
+        window.toggleExpandEdit = function (btn, bookId) {
             const parent = btn.closest('.item-card-expanded');
             const form = parent.querySelector(`.edit-form`);
             form.classList.toggle('open');
         };
+
+        window.openStatsModal = async function() {
+            document.getElementById('stats-overlay').classList.add('active');
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                
+                const genresHtml = stats.top_genres.map(g => `<li><span>${g.genre}</span> <span>${g.count}</span></li>`).join('');
+                const authorsHtml = stats.top_authors.map(a => `<li><span>${a.author}</span> <span>${a.count}</span></li>`).join('');
+                const seriesHtml = stats.top_series.map(s => `<li><span>${s.series}</span> <span>${s.count}</span></li>`).join('');
+
+                const html = `
+                    <div class="stats-grid">
+                        <div class="stat-box">
+                            <h4>Total Books</h4>
+                            <div class="val">${stats.total_books}</div>
+                        </div>
+                        <div class="stat-box">
+                            <h4>Total Pages</h4>
+                            <div class="val">${stats.total_pages.toLocaleString()}</div>
+                        </div>
+                        <div class="stat-box">
+                            <h4>Avg Pages/Book</h4>
+                            <div class="val">${stats.avg_pages}</div>
+                        </div>
+                    </div>
+                    <div class="stats-lists">
+                        <div class="stat-list">
+                            <h4>Top Genres</h4>
+                            <ul>${genresHtml || '<li><span>None</span></li>'}</ul>
+                        </div>
+                        <div class="stat-list">
+                            <h4>Top Authors</h4>
+                            <ul>${authorsHtml || '<li><span>None</span></li>'}</ul>
+                        </div>
+                        <div class="stat-list">
+                            <h4>Top Series</h4>
+                            <ul>${seriesHtml || '<li><span>None</span></li>'}</ul>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('stats-container').innerHTML = html;
+            } catch (e) {
+                document.getElementById('stats-container').innerHTML = '<div style="color:var(--danger); text-align:center;">Failed to load stats.</div>';
+            }
+        };
+
+        window.closeStatsModal = function() {
+            document.getElementById('stats-overlay').classList.remove('active');
+        };
     </script>
 </body>
-
 </html>

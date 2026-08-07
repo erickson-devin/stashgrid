@@ -1,0 +1,155 @@
+{% if room_info %}
+
+<div class="shelf-canvas">
+    {% for shelf in shelves %}
+    <div class="shelf-track" onclick="zoomShelf('{{ shelf[0] }}', '{{ shelf[1] }}')">
+        <div class="shelf-label">
+            <span>Library Shelf</span>
+            <span class="num">Level {{ shelf[1] }}</span>
+        </div>
+
+        <div class="shelf-items-row">
+            {% for book in books %}
+            {% if book[13] == shelf[0] %}
+            <div class="item-micro-chip">
+                <div class="micro-thumb" data-book-id="{{ book[0] }}">
+                    {% if book[14] %}
+                    <img src="{{ book[14] }}" alt="{{ book[2] or 'book' }}" loading="lazy">
+                    {% else %}
+                    <div class="micro-thumb-fallback">{{ (book[2] or '?')[0]|upper }}</div>
+                    {% endif %}
+                </div>
+                <span class="micro-name" title="{{ book[2] or '[ UNTITLED BOOK ]' }}">{{ book[2] or '[ UNTITLED BOOK ]' }}</span>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div id="hidden-vault" style="display: none;">
+    {% for shelf in shelves %}
+    <div class="hidden-cards-vault" data-shelf-id="{{ shelf[0] }}">
+        {% for book in books %}
+        {% if book[13] == shelf[0] %}
+        <div class="item-card-expanded">
+            <div class="expanded-thumb" data-book-id="{{ book[0] }}">
+                {% if book[14] %}
+                <img src="{{ book[14] }}" alt="{{ book[2] or 'book' }}" loading="lazy">
+                {% else %}
+                <div class="expanded-thumb-fallback">{{ (book[2] or '?')[0]|upper }}</div>
+                {% endif %}
+            </div>
+            <div class="expanded-details">
+                <div class="book-title-lg">{{ book[2] or '[ UNTITLED BOOK ]' }}</div>
+                <div class="book-author-lg">{{ book[3] or 'Unknown Author' }}</div>
+                <div style="font-size: 11px; color: var(--dim);">ISBN: {{ book[1] }}</div>
+
+                <div class="expanded-grid">
+                    <div>
+                        <div class="field-label">Genre</div>
+                        <div class="field-val">{{ book[4] or 'Uncategorized' }}</div>
+                    </div>
+                    <div>
+                        <div class="field-label">Pages</div>
+                        <div class="field-val">{{ book[5] or '?' }}</div>
+                    </div>
+                    <div>
+                        <div class="field-label">Series</div>
+                        <div class="field-val">{{ book[6] or 'None' }}</div>
+                    </div>
+                    <div>
+                        <div class="field-label">Status</div>
+                        <div class="field-val">{{ book[7] or 'Unread' }}</div>
+                    </div>
+                </div>
+
+                {% if book[10] %}
+                <div style="margin-top:12px; padding:12px; background:var(--bg2); border-left:3px solid var(--accent); border-radius:4px; font-size:13px;">
+                    <div style="color:var(--dim); font-size:11px; text-transform:uppercase; margin-bottom:4px; font-weight:600;">Notes:</div>
+                    {{ book[10] }}
+                </div>
+                {% endif %}
+
+                <div style="margin-top:16px; border-top:1px dashed var(--border); padding-top:16px;">
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-action btn-secondary" style="font-size:12px; padding:6px 12px;"
+                            onclick="toggleExpandEdit(this, '{{ book[0] }}')">Edit Metadata</button>
+                        <button class="btn-action btn-secondary" style="font-size:12px; padding:6px 12px;"
+                            onclick="window.triggerBookCover('{{ book[0] }}')">Update Cover</button>
+                    </div>
+
+                    <form method="post" action="/edit/{{ book[0] }}" class="edit-form">
+                        <input type="hidden" name="room_id" value="{{ room_info[0] }}">
+                        
+                        <label>Title</label>
+                        <input type="text" name="title" value="{{ book[2] or '' }}">
+                        
+                        <label>Author</label>
+                        <input type="text" name="author" value="{{ book[3] or '' }}">
+                        
+                        <label>ISBN</label>
+                        <input type="text" name="isbn" value="{{ book[1] or '' }}">
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                            <div>
+                                <label>Genre</label>
+                                <input type="text" name="genre" value="{{ book[4] or '' }}">
+                            </div>
+                            <div>
+                                <label>Pages</label>
+                                <input type="number" name="pages" value="{{ book[5] or '' }}" min="0">
+                            </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                            <div>
+                                <label>Series</label>
+                                <input type="text" name="series" value="{{ book[6] or '' }}">
+                            </div>
+                            <div>
+                                <label>Read Status</label>
+                                <select name="read_status">
+                                    <option value="Unread" {% if book[7] == 'Unread' %}selected{% endif %}>Unread</option>
+                                    <option value="Reading" {% if book[7] == 'Reading' %}selected{% endif %}>Reading</option>
+                                    <option value="Read" {% if book[7] == 'Read' %}selected{% endif %}>Read</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <label>Notes</label>
+                        <textarea name="notes" rows="2">{{ book[10] or '' }}</textarea>
+                        
+                        <label>Relocate Book</label>
+                        <select name="new_shelf_id">
+                            <option value="">-- Keep Current Location --</option>
+                            {% for shelf in shelves %}
+                            <option value="{{ shelf[0] }}">Move to Level {{ shelf[1] }}</option>
+                            {% endfor %}
+                        </select>
+                        
+                        <button type="submit" class="btn-action" style="width:100%; margin-top:16px;">Save Changes</button>
+                    </form>
+
+                    <div style="margin-top:16px;">
+                        <form method="post" action="/delete/{{ book[0] }}" onsubmit="return confirm('Permanently remove this book from the catalog?');">
+                            <input type="hidden" name="room_id" value="{{ room_info[0] }}">
+                            <button type="submit" class="btn-danger" style="width:100%; padding:8px; border-radius:4px; cursor:pointer;">Remove Book</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<div style="text-align:center; padding:60px 20px; color:var(--dim); font-size:16px;">
+    No library room selected or configured. <br>
+    <span style="font-size:14px; opacity:0.8;">Create a room above to start cataloging your books.</span>
+</div>
+{% endif %}
