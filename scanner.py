@@ -182,7 +182,21 @@ def enforce_mode_timeout():
 
 # ── OLD API LOOKUPS REMOVED (Now handled centrally by app.py) ──
 
-device = InputDevice(SCANNER_DEVICE)
+try:
+    device = InputDevice(SCANNER_DEVICE)
+except FileNotFoundError as e:
+    import subprocess
+    print("DEBUG: FileNotFoundError encountered. Let's see what the service can actually see in /dev/input/by-id/:")
+    try:
+        print(subprocess.check_output(["ls", "-la", "/dev/input/by-id"]).decode())
+    except Exception as ls_e:
+        print("DEBUG ls failed:", ls_e)
+    print("DEBUG: And checking the user's groups within the service:")
+    try:
+        print(subprocess.check_output(["id"]).decode())
+    except Exception as id_e:
+        print("DEBUG id failed:", id_e)
+    raise e
 
 print("==================================================")
 print("ShelfGrid Hardware Scanner Engine Active")
