@@ -35,21 +35,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("STASHGRID_SECRET_KEY", "stashgrid-dev-secret-change-in-prod-!")
 DB = "inventory.db"
 
-# ── Public Shopping List Token ────────────────────────────────────────────────
-# A 32-char hex token stored on disk. The public shopping URL is:
-#   https://stashgrid.devinerickson.com/shop/<token>
-# Rotate by deleting shopping_token.txt and restarting.
-SHOPPING_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shopping_token.txt")
 
-def _load_or_create_token():
-    if os.path.exists(SHOPPING_TOKEN_FILE):
-        return open(SHOPPING_TOKEN_FILE).read().strip()
-    token = secrets.token_hex(16)  # 32-char hex string
-    with open(SHOPPING_TOKEN_FILE, "w") as f:
-        f.write(token)
-    return token
-
-SHOPPING_TOKEN = _load_or_create_token()
 
 # ── Argon2id hasher — Pi-tuned parameters ────────────────────────────────────
 # 64 MB memory cost + 3 time iterations: ~200-400 ms on Pi 4, memory-hard
