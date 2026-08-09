@@ -8,61 +8,16 @@
     <div class="status-dot"></div>
     <span id="sync-text">Live sync active</span>
     <span>|</span>
-    <span>Rooms config: <span style="color:var(--success)">Online</span></span>
-    <span>|</span>
     <span>Access: <strong>Local / Open</strong></span>
     <div style="display:flex; gap:12px; margin-left:auto; align-items:center;">
-        {% if room_info and shelves %}
         <button class="btn-action" style="padding:6px 16px; border-radius:20px; font-size:13px;"
-            data-room-id="{{ room_info[0] }}"
-            onclick="openScanModal(this.dataset.roomId)">Scan to Shelf</button>
-        {% endif %}
+            onclick="openScanModal()">Scan Book</button>
         <button class="btn-secondary"
             style="padding:6px 16px; border-radius:20px; font-size:13px; cursor:pointer;"
             onclick="openStatsModal()">Library Stats</button>
     </div>
 </div>
 
-<div class="room-controls">
-    <div class="control-block">
-        <h3>Active Library Room</h3>
-        <form method="get" action="/" class="room-selector-form">
-            <select name="room_id" onchange="this.form.submit()" style="flex:1;">
-                {% if not rooms %}
-                <option value="">[ No rooms detected ]</option>
-                {% endif %}
-                {% for r in rooms %}
-                <option value="{{ r[0] }}" {% if r[0]==selected_room_id %}selected{% endif %}>
-                    {{ r[1] }} {% if r[2] == 1 %}(Default){% endif %}
-                </option>
-                {% endfor %}
-            </select>
-        </form>
-
-        {% if room_info %}
-        <div style="margin-top: 16px; display: flex; gap: 12px; align-items: center;">
-            <span style="font-size: 13px; color: var(--dim)">Selected: <strong style="color:var(--text)">{{ room_info[1] }}</strong></span>
-            {% if room_info[2] != 1 %}
-            <form method="post" action="/api/rooms/{{ room_info[0] }}/set-default" style="display:inline;">
-                <button type="submit" class="btn-secondary" style="font-size:11px; padding:4px 8px;">Set as Default</button>
-            </form>
-            {% endif %}
-            <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;"
-                data-room-id="{{ room_info[0] }}" data-room-name="{{ room_info[1] }}"
-                onclick="openEditRoom(this.dataset.roomId, this.dataset.roomName)">Edit Room</button>
-        </div>
-        {% endif %}
-    </div>
-
-    <div class="control-block">
-        <h3>Construct New Room</h3>
-        <form method="post" action="/api/rooms" class="new-room-form" style="display:flex; gap:8px;">
-            <input type="text" name="name" placeholder="Room Name (e.g., Office)" required style="flex:2;">
-            <input type="number" name="shelf_count" placeholder="Shelves" value="4" min="1" max="20" title="Number of Shelves" style="flex:1; width:80px;">
-            <button type="submit" class="btn-action" style="padding:0 16px;">Build</button>
-        </form>
-    </div>
-</div>
 
 <div class="search-section" style="margin-bottom:24px;">
     <input type="text" id="search-box" style="width:100%; padding:12px 16px; font-size:15px; border-radius:24px;"
@@ -74,43 +29,8 @@
     {% include '_book_cards.html' %}
 </div>
 
-<div id="zoom-overlay" class="zoom-overlay" onclick="if(event.target === this) closeShelfZoom()">
-    <div class="zoom-content">
-        <div class="zoom-header">
-            <div class="zoom-title">Shelf Focus // Level <span id="zoom-shelf-num">0</span></div>
-            <input type="hidden" id="zoom-shelf-id" value="">
-            <button class="close-zoom" onclick="closeShelfZoom()">×</button>
-        </div>
-        <div id="zoom-cards-container">
-        </div>
-    </div>
-</div>
 
-<!-- Edit Room Modal -->
-<div id="edit-room-overlay" class="zoom-overlay" onclick="if(event.target === this) closeEditRoom()">
-    <div class="zoom-content" style="max-width:500px;">
-        <div class="zoom-header">
-            <div class="zoom-title">Modify Room: <span id="edit-room-name-display">&mdash;</span></div>
-            <button class="close-zoom" onclick="closeEditRoom()">×</button>
-        </div>
 
-        <div style="margin-bottom:24px;">
-            <label style="display:block; margin-bottom:8px; font-weight:500;">Expand Capacity: Add Shelves</label>
-            <form id="add-shelves-form" method="post" action="" style="display:flex; gap:8px;">
-                <input type="number" name="add_count" placeholder="+Qty" value="1" min="1" max="20" style="width:100px;">
-                <button type="submit" class="btn-action" style="padding:0 16px;">Add Shelves</button>
-            </form>
-        </div>
-
-        <div style="border-top:1px dashed var(--border); padding-top:24px;">
-            <label style="display:block; margin-bottom:12px; font-weight:500; color:var(--danger);">Danger Zone</label>
-            <form id="delete-room-form" method="post" action=""
-                onsubmit="return confirm('CONFIRM: Permanently delete this room and ALL its books?')">
-                <button type="submit" class="btn-danger" style="width:100%; padding:10px; border-radius:4px; cursor:pointer;">Delete This Room</button>
-            </form>
-        </div>
-    </div>
-</div>
 
 <!-- Camera Scan Modal -->
 <div id="scan-overlay" class="zoom-overlay" onclick="if(event.target === this) closeScanModal()">
@@ -120,18 +40,6 @@
             <button class="close-zoom" onclick="closeScanModal()">×</button>
         </div>
 
-        <div style="margin-bottom:20px;">
-            <label style="display:block; margin-bottom:8px; font-weight:500;">Target Shelf</label>
-            <select id="scan-shelf-select" style="width:100%;">
-                {% if shelves %}
-                {% for shelf in shelves %}
-                <option value="{{ shelf[0] }}">Level {{ shelf[1] }}</option>
-                {% endfor %}
-                {% else %}
-                <option value="">[ No shelves available ]</option>
-                {% endif %}
-            </select>
-        </div>
 
         <div id="cam-viewfinder-wrap" style="width:100%; aspect-ratio:4/3; background:#000; border-radius:8px; overflow:hidden; position:relative; margin-bottom:20px; display:flex; align-items:center; justify-content:center;">
             <div id="cam-idle-msg" style="color:#fff; text-align:center;">Camera Offline<br><span style="font-size:13px; opacity:0.7;">Tap Start Scan to activate</span></div>
@@ -139,7 +47,7 @@
         </div>
 
         <div id="scan-status" style="text-align:center; margin-bottom:20px; font-size:14px; font-weight:500; color:var(--primary);">
-            Ready — Select a shelf and tap Start Scan
+            Ready — Tap Start Scan
         </div>
 
         <div id="scan-result" style="display:none; text-align:center; margin-bottom:20px; padding:16px; background:var(--bg2); border-radius:8px;">
@@ -162,25 +70,12 @@
 </div>
 
 <script>
-    window.openEditRoom = function(roomId, roomName) {
-        document.getElementById('edit-room-name-display').textContent = roomName;
-        document.getElementById('add-shelves-form').action = '/api/rooms/' + roomId + '/add-shelves';
-        document.getElementById('delete-room-form').action = '/api/rooms/' + roomId + '/delete';
-        document.getElementById('edit-room-overlay').classList.add('active');
-    };
-
-    window.closeEditRoom = function() {
-        document.getElementById('edit-room-overlay').classList.remove('active');
-    };
-
     let _qrScanner = null;
-    let _scanRoomId = null;
     let _lastScannedBookId = null;
 
-    window.openScanModal = function(roomId) {
-        _scanRoomId = roomId;
+    window.openScanModal = function() {
         document.getElementById('scan-result').style.display = 'none';
-        document.getElementById('scan-status').textContent = 'Ready — Select a shelf and tap Start Scan';
+        document.getElementById('scan-status').textContent = 'Ready — Tap Start Scan';
         document.getElementById('btn-start-scan').style.display = 'inline-block';
         document.getElementById('btn-stop-scan').style.display = 'none';
         document.getElementById('cam-idle-msg').style.display = 'block';
@@ -243,20 +138,11 @@
         if (_scanCooldown) return;
         _scanCooldown = true;
 
-        const shelfId = document.getElementById('scan-shelf-select').value;
-        if (!shelfId) {
-            _setScanStatus('Error: No shelf selected!', true);
-            setTimeout(() => _scanCooldown = false, 2000);
-            return;
-        }
-
         _setScanStatus('Processing ISBN: ' + decodedText + '...');
 
         try {
             const formData = new FormData();
             formData.append('barcode', decodedText);
-            formData.append('room_id', _scanRoomId);
-            formData.append('shelf_id', shelfId);
 
             const resp = await fetch('/api/books/add', {
                 method: 'POST',

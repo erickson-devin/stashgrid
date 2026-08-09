@@ -56,25 +56,18 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 def init_db():
     with sqlite3.connect(DB) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS rooms (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                is_default INTEGER DEFAULT 0
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS shelves (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                room_id INTEGER NOT NULL,
-                shelf_number INTEGER NOT NULL,
-                FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE
-            )
-        """)
         # Drop old tables
         conn.execute("DROP TABLE IF EXISTS inventory")
         conn.execute("DROP TABLE IF EXISTS shopping_lists")
         conn.execute("DROP TABLE IF EXISTS shopping_list_items")
+        conn.execute("DROP TABLE IF EXISTS rooms")
+        conn.execute("DROP TABLE IF EXISTS shelves")
+
+        try:
+            conn.execute("ALTER TABLE books DROP COLUMN room_id")
+            conn.execute("ALTER TABLE books DROP COLUMN shelf_id")
+        except Exception:
+            pass # Older SQLite or already dropped
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS books (
@@ -88,16 +81,12 @@ def init_db():
                 series TEXT,
                 read_status TEXT DEFAULT 'Unread',
                 notes TEXT,
-                room_id INTEGER,
-                shelf_id INTEGER,
                 cover_path TEXT,
                 created_by INTEGER,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
                 removed_at TEXT,
-                removed_reason TEXT,
-                FOREIGN KEY(room_id) REFERENCES rooms(id),
-                FOREIGN KEY(shelf_id) REFERENCES shelves(id)
+                removed_reason TEXT
             )
         """)
         # ── Auth: users table ─────────────────────────────────────────────────
@@ -226,149 +215,41 @@ def logout():
     return redirect(url_for("login"))
 
 
-def _get_rooms_list():
-
-    with sqlite3.connect(DB) as conn:
-        return conn.execute("SELECT id, name, is_default FROM rooms ORDER BY name ASC").fetchall()
-
-
-def _get_room_layout(room_id):
-    if not room_id:
-        return None, []
-    with sqlite3.connect(DB) as conn:
-        room = conn.execute("SELECT id, name, is_default FROM rooms WHERE id = ?", (room_id,)).fetchone()
-        if not room:
-            return None, []
-        shelves = conn.execute("SELECT id, shelf_number FROM shelves WHERE room_id = ? ORDER BY shelf_number DESC", (room_id,)).fetchall()
-        return room, shelves
-
-
-def _fetch_books_by_layout(room_id=None, q=""):
+def _fetch_all_books(q=""):
     with sqlite3.connect(DB) as conn:
         if q:
             like = f"%{q}%"
             rows = conn.execute("""
-                SELECT b.id, b.isbn, b.title, b.author, b.genre, b.pages, b.series, b.read_status, r.name, s.shelf_number, b.notes, b.updated_at, b.room_id, b.shelf_id, b.cover_path
-                FROM books b
-                LEFT JOIN rooms r ON b.room_id = r.id
-                LEFT JOIN shelves s ON b.shelf_id = s.id
-                WHERE b.is_active = 1
-                  AND (b.isbn LIKE ? OR b.title LIKE ? OR b.author LIKE ? OR b.series LIKE ? OR b.notes LIKE ? OR r.name LIKE ?)
-                ORDER BY b.updated_at DESC
-            """, (like, like, like, like, like, like)).fetchall()
+                SELECT id, isbn, title, author, genre, pages, series, read_status, notes, updated_at, cover_path
+                FROM books
+                WHERE is_active = 1
+                  AND (isbn LIKE ? OR title LIKE ? OR author LIKE ? OR series LIKE ? OR notes LIKE ?)
+                ORDER BY updated_at DESC
+            """, (like, like, like, like, like)).fetchall()
             return rows
-        elif room_id:
+        else:
             rows = conn.execute("""
-                SELECT b.id, b.isbn, b.title, b.author, b.genre, b.pages, b.series, b.read_status, r.name, s.shelf_number, b.notes, b.updated_at, b.room_id, b.shelf_id, b.cover_path
-                FROM books b
-                LEFT JOIN rooms r ON b.room_id = r.id
-                LEFT JOIN shelves s ON b.shelf_id = s.id
-                WHERE b.is_active = 1 AND b.room_id = ?
-                ORDER BY s.shelf_number DESC, b.updated_at DESC
-            """, (room_id,)).fetchall()
+                SELECT id, isbn, title, author, genre, pages, series, read_status, notes, updated_at, cover_path
+                FROM books
+                WHERE is_active = 1
+                ORDER BY updated_at DESC
+            """).fetchall()
             return rows
-        return []
-
-
-def _resolve_room_id(raw_id, rooms):
-    """Safely extracts fallback integers to avoid API data parameter crashes."""
-    if not raw_id or str(raw_id).strip() in ("", "None", "undefined"):
-        with sqlite3.connect(DB) as conn:
-            default_room = conn.execute("SELECT id FROM rooms WHERE is_default = 1 LIMIT 1").fetchone()
-            if default_room:
-                return int(default_room[0])
-            elif rooms:
-                return int(rooms[0][0])
-            return None
-    try:
-        return int(raw_id)
-    except ValueError:
-        return None
 
 
 @app.route("/")
 def index():
     q = request.args.get("q", "").strip()
-    rooms = _get_rooms_list()
-    selected_room_id = _resolve_room_id(request.args.get("room_id"), rooms)
-
-    room_info, shelves = _get_room_layout(selected_room_id)
-    books = _fetch_books_by_layout(room_id=selected_room_id, q=q)
+    books = _fetch_all_books(q=q)
 
     return render_template(
         "index.html",
-        rooms=rooms,
-        room_info=room_info,
-        shelves=shelves,
         books=books,
-        selected_room_id=selected_room_id,
         q=q
     )
 
 
-@app.route("/api/rooms", methods=["POST"])
-def create_room():
-    name = request.form.get("name", "").strip()
-    shelf_count = int(request.form.get("shelf_count", 3))
-    if not name:
-        return redirect("/")
 
-    with sqlite3.connect(DB) as conn:
-        existing = conn.execute("SELECT count(*) FROM rooms").fetchone()[0]
-        is_default = 1 if existing == 0 else 0
-
-        cursor = conn.execute("INSERT INTO rooms (name, is_default) VALUES (?, ?)", (name, is_default))
-        room_id = cursor.lastrowid
-
-        for i in range(1, shelf_count + 1):
-            conn.execute("INSERT INTO shelves (room_id, shelf_number) VALUES (?, ?)", (room_id, i))
-
-    log_audit(session.get("user_id"), "create_room", "room", room_id)
-    return redirect(f"/?room_id={room_id}")
-
-
-@app.route("/api/rooms/<int:room_id>/set-default", methods=["POST"])
-def set_default_room(room_id):
-    with sqlite3.connect(DB) as conn:
-        conn.execute("UPDATE rooms SET is_default = 0")
-        conn.execute("UPDATE rooms SET is_default = 1 WHERE id = ?", (room_id,))
-    return redirect(f"/?room_id={room_id}")
-
-
-@app.route("/api/rooms/<int:room_id>/add-shelves", methods=["POST"])
-def add_shelves_to_room(room_id):
-    """Append additional shelves to an existing room."""
-    add_count = int(request.form.get("add_count", 1))
-    with sqlite3.connect(DB) as conn:
-        room = conn.execute("SELECT id FROM rooms WHERE id = ?", (room_id,)).fetchone()
-        if not room:
-            return redirect("/")
-        # Find the highest existing shelf number so we continue from there
-        max_shelf = conn.execute(
-            "SELECT COALESCE(MAX(shelf_number), 0) FROM shelves WHERE room_id = ?", (room_id,)
-        ).fetchone()[0]
-        for i in range(1, add_count + 1):
-            conn.execute("INSERT INTO shelves (room_id, shelf_number) VALUES (?, ?)", (room_id, max_shelf + i))
-    logger.info("Added %d shelf(ves) to room %d", add_count, room_id)
-    return redirect(f"/?room_id={room_id}")
-
-
-@app.route("/api/rooms/<int:room_id>/delete", methods=["POST"])
-def delete_room(room_id):
-    """Delete a room, its shelves, and soft-delete all its books."""
-    with sqlite3.connect(DB) as conn:
-        # Soft-delete all books belonging to this room
-        conn.execute(
-            "UPDATE books SET is_active = 0, removed_at = CURRENT_TIMESTAMP, "
-            "removed_reason = 'Room deleted via HUD' WHERE room_id = ?",
-            (room_id,)
-        )
-        # Hard-delete shelves and room (FK cascade handles shelves if pragma is on, but explicit is safer)
-        conn.execute("DELETE FROM shelves WHERE room_id = ?", (room_id,))
-        conn.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
-    log_audit(session.get("user_id"), "delete_room", "room", room_id)
-    logger.info("Deleted room %d", room_id)
-    return redirect("/")
 
 
 def fetch_isbn_metadata(isbn):
@@ -426,24 +307,22 @@ def api_books_add():
     script hits it directly without a browser session. Actions are attributed
     to SYSTEM_USER_ID (1) in the audit log."""
     isbn = request.form.get("barcode", "").strip().upper()
-    shelf_id = request.form.get("shelf_id", type=int)
-    room_id = request.form.get("room_id", type=int)
 
-    if not isbn or not shelf_id or not room_id:
-        return jsonify({"error": "barcode (isbn), shelf_id and room_id are all required"}), 400
+    if not isbn:
+        return jsonify({"error": "barcode (isbn) is required"}), 400
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     with sqlite3.connect(DB) as conn:
         existing = conn.execute("""
             SELECT id, title, cover_path FROM books
-            WHERE isbn = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
-        """, (isbn, room_id, shelf_id)).fetchone()
+            WHERE isbn = ? AND is_active = 1
+        """, (isbn,)).fetchone()
 
         if existing:
-            # Books are generally unique, but if they scan the exact same ISBN to the exact same shelf,
-            # we just acknowledge it (we don't increment quantity since we removed it).
-            logger.info("Re-scanned existing ISBN %s on shelf %d", isbn, shelf_id)
+            # Books are generally unique, but if they scan the exact same ISBN,
+            # we just acknowledge it.
+            logger.info("Re-scanned existing ISBN %s", isbn)
             return jsonify({
                 "id": existing[0],
                 "title": existing[1] or isbn,
@@ -458,11 +337,11 @@ def api_books_add():
             cover_path = metadata.get("cover_path")
 
             cursor = conn.execute("""
-                INSERT INTO books (isbn, title, author, pages, room_id, shelf_id, notes, updated_at, is_active, cover_path)
-                VALUES (?, ?, ?, ?, ?, ?, '', ?, 1, ?)
-            """, (isbn, title, author, pages, room_id, shelf_id, now, cover_path))
+                INSERT INTO books (isbn, title, author, pages, notes, updated_at, is_active, cover_path)
+                VALUES (?, ?, ?, ?, '', ?, 1, ?)
+            """, (isbn, title, author, pages, now, cover_path))
             new_id = cursor.lastrowid
-            logger.info("New book scanned: %s (%s) on shelf %d", title, isbn, shelf_id)
+            logger.info("New book scanned: %s (%s)", title, isbn)
             log_audit(SYSTEM_USER_ID, "scan_new", "book", new_id)
             return jsonify({
                 "id": new_id,
@@ -506,7 +385,7 @@ SCANNER_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "s
 
 @app.route("/api/scanner-state")
 def scanner_state():
-    """Return the live state written by scanner.py (mode, shelf, room).
+    """Return the live state written by scanner.py.
     Returns a default 'offline' payload if scanner.py isn't running yet."""
     try:
         with open(SCANNER_STATE_FILE, "r") as f:
@@ -514,20 +393,17 @@ def scanner_state():
         state["online"] = True
         return jsonify(state)
     except FileNotFoundError:
-        return jsonify({"online": False, "mode": "IN", "shelf_number": None, "shelf_id": None, "room_id": None})
+        return jsonify({"online": False, "mode": "IN"})
     except Exception as e:
         logger.warning("Failed to read scanner state file: %s", e)
-        return jsonify({"online": False, "mode": "IN", "shelf_number": None, "shelf_id": None, "room_id": None})
+        return jsonify({"online": False, "mode": "IN"})
 
 
 @app.route("/api/library-hash")
 def library_hash():
     q = request.args.get("q", "").strip()
-    rooms = _get_rooms_list()
-    selected_room_id = _resolve_room_id(request.args.get("room_id"), rooms)
-
-    books = _fetch_books_by_layout(room_id=selected_room_id, q=q)
-    state = {"books": books, "rooms": rooms}
+    books = _fetch_all_books(q=q)
+    state = {"books": books}
     digest = hashlib.md5(json.dumps(state, default=str).encode()).hexdigest()
     return jsonify({"hash": digest})
 
@@ -535,13 +411,9 @@ def library_hash():
 @app.route("/api/books")
 def api_books():
     q = request.args.get("q", "").strip()
-    rooms = _get_rooms_list()
-    selected_room_id = _resolve_room_id(request.args.get("room_id"), rooms)
+    books = _fetch_all_books(q=q)
 
-    room_info, shelves = _get_room_layout(selected_room_id)
-    books = _fetch_books_by_layout(room_id=selected_room_id, q=q)
-
-    html = render_template("_book_cards.html", room_info=room_info, books=books, shelves=shelves, q=q)
+    html = render_template("_book_cards.html", books=books, q=q)
     return jsonify({"html": html, "count": len(books)})
 
 
@@ -597,41 +469,27 @@ def edit_book(book_id):
         pages = 0
 
     notes = request.form.get("notes", "").strip()
-    room_id = request.form.get("room_id")
-    new_shelf_id_raw = request.form.get("new_shelf_id", "").strip()
 
     with sqlite3.connect(DB) as conn:
-        if new_shelf_id_raw.isdigit():
-            # Relocate asset: update shelf_id alongside the standard metadata fields
-            conn.execute("""
-                UPDATE books
-                SET title = ?, author = ?, isbn = ?, genre = ?, series = ?, pages = ?, read_status = ?, notes = ?,
-                    shelf_id = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (title, author, isbn, genre, series, pages, read_status, notes, int(new_shelf_id_raw), book_id))
-            logger.info("Relocated book %d to shelf %s via Web HUD", book_id, new_shelf_id_raw)
-        else:
-            # No relocation requested — leave shelf_id untouched
-            conn.execute("""
-                UPDATE books
-                SET title = ?, author = ?, isbn = ?, genre = ?, series = ?, pages = ?, read_status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (title, author, isbn, genre, series, pages, read_status, notes, book_id))
+        conn.execute("""
+            UPDATE books
+            SET title = ?, author = ?, isbn = ?, genre = ?, series = ?, pages = ?, read_status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (title, author, isbn, genre, series, pages, read_status, notes, book_id))
 
     log_audit(session.get("user_id"), "edit_book", "book", book_id)
-    return redirect(f"/?room_id={room_id}" if room_id else "/")
+    return redirect("/")
 
 
 @app.route("/delete/<int:book_id>", methods=["POST"])
 def delete_book(book_id):
     reason = request.form.get("reason", "Purged via terminal")
-    room_id = request.form.get("room_id")
 
     with sqlite3.connect(DB) as conn:
         conn.execute("UPDATE books SET is_active = 0, removed_at = CURRENT_TIMESTAMP, removed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reason, book_id))
 
     log_audit(session.get("user_id"), "delete_book", "book", book_id)
-    return redirect(f"/?room_id={room_id}" if room_id else "/")
+    return redirect("/")
 
 
 # ── Shopping List Routes Removed ──────────────────────────────

@@ -26,9 +26,7 @@ SCANNER_DEVICE = "/dev/input/by-id/usb-2022_0202-event-kbd"
 DB = "inventory.db"
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanner_state.json")
 
-# Spatial Tracking States
-current_room_id = None
-current_shelf_id = None
+# Operational State
 scan_mode = "IN"  # Default mode
 mode_out_started = None
 MODE_OUT_TIMEOUT_SECONDS = 300
@@ -50,24 +48,10 @@ def _write_state():
     """Atomically write current scanner state to a JSON file so Flask can serve it."""
     state = {
         "mode": scan_mode,
-        "room_id": current_room_id,
-        "shelf_id": current_shelf_id,
         "mode_out_started": mode_out_started,
         "timeout_seconds": MODE_OUT_TIMEOUT_SECONDS,
         "updated_at": datetime.now().isoformat()
     }
-    # Get shelf display number from DB for a human-readable label
-    if current_shelf_id:
-        try:
-            with sqlite3.connect(DB) as conn:
-                row = conn.execute(
-                    "SELECT shelf_number FROM shelves WHERE id = ?", (current_shelf_id,)
-                ).fetchone()
-                state["shelf_number"] = row[0] if row else None
-        except Exception:
-            state["shelf_number"] = None
-    else:
-        state["shelf_number"] = None
 
     try:
         dir_ = os.path.dirname(STATE_FILE)
@@ -79,15 +63,13 @@ def _write_state():
         print(f"[!] Failed to write scanner state: {e}")
 
 
-def add_scan(item_barcode, room_id, shelf_id):
+def add_scan(item_barcode):
     print(f"[*] Dispatching ISBN {item_barcode} to backend API...")
     try:
         response = requests.post(
             "http://127.0.0.1:5000/api/books/add",
             data={
-                "barcode": item_barcode,
-                "room_id": room_id,
-                "shelf_id": shelf_id
+                "barcode": item_barcode
             },
             timeout=10
         )
@@ -102,25 +84,23 @@ def add_scan(item_barcode, room_id, shelf_id):
     except requests.exceptions.RequestException as e:
         print(f"[!] Connection to backend API failed: {e}")
 
-def remove_scan(item_barcode, room_id, shelf_id):
+def remove_scan(item_barcode):
     print("[!] Warning: Remove Mode is disabled for physical library scanning.")
     print("    Please use the web interface to delete records.")
 
 def handle_scan(scanned):
-    global current_room_id, current_shelf_id, scan_mode, mode_out_started
+    global scan_mode, mode_out_started
 
     enforce_mode_timeout()
     scanned = scanned.strip().upper()
 
     # ── 1. SHEET ACTION COMMAND HANDLING ──
     if scanned in ["SG-CANCEL", "SG-DONE"]:
-        current_room_id = None
-        current_shelf_id = None
         scan_mode = "IN"
         mode_out_started = None
         _write_state()
         print("======== SESSION RESET / DISENGAGED ========")
-        print("Awaiting physical location target scanning...")
+        print("Awaiting scan...")
         return
 
     if scanned in ["SG-ADD", "SG-IN"]:
@@ -137,36 +117,11 @@ def handle_scan(scanned):
         print("--> Mode toggled: [ OUTTAKE / REMOVE ] (5 Minute Safety Timer Active)")
         return
 
-    # ── 2. PHYSICAL LOCATION SPATIAL TAGGING ──
-    # Expects format: LOC-R<room_id>-S<shelf_id>  Example: LOC-R2-S5
-    if scanned.startswith("LOC-R"):
-        try:
-            parts = scanned.split("-")
-            room_part = parts[1]  # "R2"
-            shelf_part = parts[2] # "S5"
-
-            current_room_id = int(room_part.replace("R", ""))
-            current_shelf_id = int(shelf_part.replace("S", ""))
-            _write_state()
-
-            print(f"\n=========================================")
-            print(f"TARGET ACQUIRED: Room ID {current_room_id} // Shelf ID {current_shelf_id}")
-            print(f"Current Mode: [{scan_mode}]")
-            print(f"=========================================")
-            return
-        except Exception:
-            print(f"[!] Invalid location barcode syntax: '{scanned}'. Use format: LOC-R[ID]-S[ID]")
-            return
-
-    # ── 3. ITEM PROCESSING ──
-    if current_room_id is None or current_shelf_id is None:
-        print(f"[!] Scan Rejected: '{scanned}'. You must scan a location barcode first (e.g., LOC-R1-S3)")
-        return
-
+    # ── 2. ITEM PROCESSING ──
     if scan_mode == "OUT":
-        remove_scan(scanned, current_room_id, current_shelf_id)
+        remove_scan(scanned)
     else:
-        add_scan(scanned, current_room_id, current_shelf_id)
+        add_scan(scanned)
 
 def enforce_mode_timeout():
     global scan_mode, mode_out_started
@@ -182,25 +137,11 @@ def enforce_mode_timeout():
 
 # ── OLD API LOOKUPS REMOVED (Now handled centrally by app.py) ──
 
-try:
-    device = InputDevice(SCANNER_DEVICE)
-except FileNotFoundError as e:
-    import subprocess
-    print("DEBUG: FileNotFoundError encountered. Let's see what the service can actually see in /dev/input/by-id/:")
-    try:
-        print(subprocess.check_output(["ls", "-la", "/dev/input/by-id"]).decode())
-    except Exception as ls_e:
-        print("DEBUG ls failed:", ls_e)
-    print("DEBUG: And checking the user's groups within the service:")
-    try:
-        print(subprocess.check_output(["id"]).decode())
-    except Exception as id_e:
-        print("DEBUG id failed:", id_e)
-    raise e
+device = InputDevice(SCANNER_DEVICE)
 
 print("==================================================")
 print("ShelfGrid Hardware Scanner Engine Active")
-print("Awaiting location assignment scan sequence...")
+print("Awaiting scan sequence...")
 print("==================================================")
 
 for event in device.read_loop():
