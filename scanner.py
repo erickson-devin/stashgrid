@@ -67,9 +67,9 @@ def add_scan(item_barcode):
     print(f"[*] Dispatching ISBN {item_barcode} to backend API...")
     try:
         response = requests.post(
-            "http://127.0.0.1:5000/api/books/add",
-            data={
-                "barcode": item_barcode
+            "http://localhost:5000/api/books/add",
+            json={
+                "isbn": item_barcode
             },
             timeout=10
         )

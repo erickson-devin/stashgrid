@@ -306,7 +306,17 @@ def api_books_add():
     CRITICAL: This route is intentionally unprotected — the headless scanner.py
     script hits it directly without a browser session. Actions are attributed
     to SYSTEM_USER_ID (1) in the audit log."""
-    isbn = request.form.get("barcode", "").strip().upper()
+    if request.is_json:
+        isbn = request.json.get("isbn", "").strip().upper()
+    else:
+        isbn = request.form.get("isbn", "").strip().upper()
+
+    if not isbn:
+        # Fallback to barcode for backwards compatibility
+        if request.is_json:
+            isbn = request.json.get("barcode", "").strip().upper()
+        else:
+            isbn = request.form.get("barcode", "").strip().upper()
 
     if not isbn:
         return jsonify({"error": "barcode (isbn) is required"}), 400
@@ -328,7 +338,7 @@ def api_books_add():
                 "title": existing[1] or isbn,
                 "cover_path": existing[2],
                 "is_new": False
-            })
+            }), 200
         else:
             metadata = fetch_isbn_metadata(isbn)
             title = metadata.get("title")
@@ -337,8 +347,8 @@ def api_books_add():
             cover_path = metadata.get("cover_path")
 
             cursor = conn.execute("""
-                INSERT INTO books (isbn, title, author, pages, notes, updated_at, is_active, cover_path)
-                VALUES (?, ?, ?, ?, '', ?, 1, ?)
+                INSERT INTO books (isbn, title, author, pages, notes, updated_at, is_active, cover_path, created_by)
+                VALUES (?, ?, ?, ?, '', ?, 1, ?, 0)
             """, (isbn, title, author, pages, now, cover_path))
             new_id = cursor.lastrowid
             logger.info("New book scanned: %s (%s)", title, isbn)
@@ -348,7 +358,7 @@ def api_books_add():
                 "title": title,
                 "cover_path": cover_path,
                 "is_new": True
-            })
+            }), 200
 
 
 @app.route("/api/books/<int:book_id>/cover", methods=["POST"])
