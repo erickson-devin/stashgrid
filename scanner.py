@@ -1,6 +1,10 @@
 import sqlite3
 import requests
+import urllib3
 import time
+
+# Suppress insecure request warnings from using self-signed certs
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import sys
 import os
 import json
@@ -67,11 +71,12 @@ def add_scan(item_barcode):
     print(f"[*] Dispatching ISBN {item_barcode} to backend API...")
     try:
         response = requests.post(
-            "http://localhost:5000/api/books/add",
+            "https://localhost:5000/api/books/add",
             json={
                 "isbn": item_barcode
             },
-            timeout=10
+            timeout=10,
+            verify=False
         )
         if response.status_code == 200:
             data = response.json()
