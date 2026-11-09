@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify, redirect, session, url_for, abort
+from flask import Flask, request, render_template, jsonify, redirect, session, url_for, abort, g
 from functools import wraps
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
@@ -13,7 +13,7 @@ import time
 import threading
 import subprocess
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests as http_client
 from PIL import Image
 
@@ -33,7 +33,18 @@ logger.info("StashGrid app started with Spatial Architecture")
 app = Flask(__name__)
 # Secret key signs session cookies — override via env var in production
 app.secret_key = os.environ.get("STASHGRID_SECRET_KEY", "stashgrid-dev-secret-change-in-prod-!")
+# Keep the kiosk and phones logged in across browser restarts.
+app.config.update(
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
 DB = "inventory.db"
+
+# Shared key that lets a headless client (the hardware scanner, see SG-10) call
+# /api/scan without a browser session. Sent as the X-StashGrid-Key header.
+# Key auth is disabled when this is unset.
+SCANNER_API_KEY = os.environ.get("STASHGRID_SCANNER_KEY", "")
 
 # ── Public Shopping List Token ────────────────────────────────────────────────
 # A 32-char hex token stored on disk. The public shopping URL is:
@@ -179,26 +190,84 @@ def init_db():
 
 # ── Auth helpers & decorators ────────────────────────────────────────────────
 
-def log_audit(user_id, action, target_type, target_id):
+def log_audit(user_id, action, target_type, target_id, conn=None):
     """Insert a row into audit_logs. Never raises — a logging failure must not
-    crash a route or corrupt a transaction."""
+    crash a route or corrupt a transaction.
+    Pass `conn` when the caller holds an open write transaction; opening a
+    second connection then fails with 'database is locked'."""
+    sql = ("INSERT INTO audit_logs (user_id, action, target_type, target_id) "
+           "VALUES (?, ?, ?, ?)")
+    params = (user_id, action, target_type, target_id)
     try:
-        with sqlite3.connect(DB) as conn:
-            conn.execute(
-                "INSERT INTO audit_logs (user_id, action, target_type, target_id) "
-                "VALUES (?, ?, ?, ?)",
-                (user_id, action, target_type, target_id)
-            )
+        if conn is not None:
+            conn.execute(sql, params)
+            return
+        with sqlite3.connect(DB) as own_conn:
+            own_conn.execute(sql, params)
     except Exception as e:
         logger.warning("log_audit failed: %s", e)
 
 
+# Endpoints reachable without a session. Everything else requires login.
+# The public shopping routes are protected by their own token check instead.
+PUBLIC_ENDPOINTS = {
+    "login",
+    "static",
+    "shopping_view",
+    "public_shopping_lists",
+    "public_toggle_item",
+    "public_create_list",
+    "public_add_item",
+}
+
+# Endpoints a headless client may call with X-StashGrid-Key instead of a session.
+SCANNER_KEY_ENDPOINTS = {"api_scan"}
+
+
+def _wants_json():
+    """True for API/fetch requests, which get 401 JSON instead of a redirect."""
+    return (
+        request.path.startswith("/api/")
+        or request.accept_mimetypes.best == "application/json"
+    )
+
+
+def _unauthenticated_response():
+    if _wants_json():
+        return jsonify({"error": "AUTHENTICATION REQUIRED"}), 401
+    nxt = request.full_path if request.method == "GET" else "/"
+    return redirect(url_for("login", next=nxt.rstrip("?")))
+
+
+def _valid_scanner_key():
+    supplied = request.headers.get("X-StashGrid-Key", "")
+    return bool(SCANNER_API_KEY) and secrets.compare_digest(
+        supplied.encode(), SCANNER_API_KEY.encode()
+    )
+
+
+@app.before_request
+def _require_login():
+    """Allow-list auth: only PUBLIC_ENDPOINTS skip the session check (SG-02)."""
+    g.user_id = session.get("user_id")
+    endpoint = request.endpoint
+    if endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if g.user_id:
+        return None
+    if endpoint in SCANNER_KEY_ENDPOINTS and _valid_scanner_key():
+        g.user_id = SYSTEM_USER_ID
+        return None
+    return _unauthenticated_response()
+
+
 def login_required(f):
-    """Decorator: redirect to /login if there is no active session."""
+    """Decorator: redirect to /login if there is no active session.
+    Redundant with the before_request allow-list; kept for explicitness."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("user_id"):
-            return redirect(url_for("login"))
+            return _unauthenticated_response()
         return f(*args, **kwargs)
     return decorated
 
@@ -209,18 +278,25 @@ def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("user_id"):
-            return redirect(url_for("login"))
+            return _unauthenticated_response()
         if session.get("role") != "admin":
             return jsonify({"error": "CLEARANCE DENIED // ADMIN REQUIRED"}), 403
         return f(*args, **kwargs)
     return decorated
 
 
+def _safe_next(target):
+    """Only allow same-site relative redirects after login."""
+    if target and target.startswith("/") and not target.startswith("//") and "\\" not in target:
+        return target
+    return url_for("index")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     """Secure Terminal Gateway — authenticate and establish a session."""
     if session.get("user_id"):
-        return redirect(url_for("index"))
+        return redirect(_safe_next(request.args.get("next")))
 
     error = None
     if request.method == "POST":
@@ -236,12 +312,14 @@ def login():
             try:
                 _ph.verify(row[2], password)
                 # ✅ Credentials valid — establish session
+                session.clear()
+                session.permanent   = True
                 session["user_id"]  = row[0]
                 session["username"] = row[1]
                 session["role"]     = row[3]
                 logger.info("Auth: user '%s' (role=%s) logged in", row[1], row[3])
                 log_audit(row[0], "login", "user", row[0])
-                return redirect(url_for("index"))
+                return redirect(_safe_next(request.args.get("next")))
             except (VerifyMismatchError, InvalidHashError):
                 pass  # Fall through to generic error
         # Generic message — don't reveal whether the username exists
@@ -399,6 +477,7 @@ def add_shelves_to_room(room_id):
 
 
 @app.route("/api/rooms/<int:room_id>/delete", methods=["POST"])
+@admin_required
 def delete_room(room_id):
     """Delete a room, its shelves, and soft-delete all its inventory items."""
     with sqlite3.connect(DB) as conn:
@@ -519,10 +598,10 @@ def _auto_add_to_shopping_list(conn, barcode, name, preferred_store="Costco"):
 
 @app.route("/api/scan", methods=["POST"])
 def api_scan():
-    """Receive a barcode from the browser camera or hardware scanner.
-    CRITICAL: This route is intentionally unprotected — the headless scanner.py
-    script hits it directly without a browser session. Actions are attributed
-    to SYSTEM_USER_ID (1) in the audit log."""
+    """Receive a barcode from the browser camera or a headless scanner client.
+    Requires a logged-in session, or the X-StashGrid-Key header for headless
+    clients (attributed to SYSTEM_USER_ID in the audit log)."""
+    actor_id = g.user_id or SYSTEM_USER_ID
     barcode = request.form.get("barcode", "").strip().upper()
     shelf_id = request.form.get("shelf_id", type=int)
     room_id = request.form.get("room_id", type=int)
@@ -544,7 +623,7 @@ def api_scan():
                 (now, existing[0])
             )
             logger.info("Incremented barcode %s on shelf %d", barcode, shelf_id)
-            log_audit(SYSTEM_USER_ID, "scan_increment", "item", existing[0])
+            log_audit(actor_id, "scan_increment", "item", existing[0], conn=conn)
             return jsonify({
                 "id": existing[0],
                 "name": existing[2] or barcode,
@@ -560,7 +639,7 @@ def api_scan():
             """, (barcode, name, room_id, shelf_id, now))
             new_id = cursor.lastrowid
             logger.info("New item scanned: %s (%s) on shelf %d", name, barcode, shelf_id)
-            log_audit(SYSTEM_USER_ID, "scan_new", "item", new_id)
+            log_audit(actor_id, "scan_new", "item", new_id, conn=conn)
             return jsonify({
                 "id": new_id,
                 "name": name,
@@ -881,6 +960,7 @@ def rename_shopping_list(list_id):
 
 
 @app.route("/api/shopping-lists/<int:list_id>/delete", methods=["POST"])
+@admin_required
 def delete_shopping_list(list_id):
     with sqlite3.connect(DB) as conn:
         lst = conn.execute(
