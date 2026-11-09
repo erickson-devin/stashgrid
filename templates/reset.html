@@ -1,0 +1,22 @@
+{% extends 'login.html' %}
+
+{% block title %}StashGrid // Choose a New Password{% endblock %}
+
+{% block section_tag %}Choose a New Password{% endblock %}
+
+{% block body %}
+<form method="post" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field-group">
+        <label class="field-label" for="new_password">New Password (min {{ min_len }})</label>
+        <input id="new_password" class="field-input" type="password" name="new_password"
+            minlength="{{ min_len }}" autocomplete="new-password" required autofocus>
+    </div>
+    <div class="field-group">
+        <label class="field-label" for="confirm_password">Confirm New Password</label>
+        <input id="confirm_password" class="field-input" type="password" name="confirm_password"
+            minlength="{{ min_len }}" autocomplete="new-password" required>
+    </div>
+    <button type="submit" class="btn-login">&#9654; Set Password</button>
+</form>
+{% endblock %}

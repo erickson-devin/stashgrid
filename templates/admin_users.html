@@ -75,10 +75,12 @@
 
 {% block body %}
 <ul class="user-list">
-    {% for user_id, username, role, must_change in users %}
+    {% for user_id, username, role, must_change, email, display_name in users %}
     <li class="user-row">
         <div class="user-head">
             <span class="user-name">{{ username }}</span>
+            {% if display_name and display_name != username %}<span class="badge">{{ display_name }}</span>{% endif %}
+            {% if email %}<span class="badge">{{ email }}</span>{% endif %}
             <span class="badge {{ 'admin' if role in ('owner', 'admin') }}">{{ role }}</span>
             {% if must_change %}<span class="badge pending">password change pending</span>{% endif %}
             {% if user_id == session.get('user_id') %}<span class="badge">you</span>{% endif %}
@@ -105,7 +107,44 @@
     {% endfor %}
 </ul>
 
-<div class="sub-heading">Add Operator</div>
+<div class="sub-heading">Invite by Email</div>
+<form method="post" action="{{ url_for('core.admin_invite_user') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="two-col">
+        <div class="field-group">
+            <label class="field-label" for="invite_email">Email</label>
+            <input id="invite_email" class="field-input" type="email" name="email" maxlength="254" required>
+        </div>
+        <div class="field-group">
+            <label class="field-label" for="invite_role">Role</label>
+            <select id="invite_role" class="field-input" name="role">
+                {% for r in roles %}<option value="{{ r }}" {{ "selected" if r == "member" }}>{{ r }}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <button type="submit" class="btn-login">&#9654; Send Invitation</button>
+</form>
+
+{% if invites %}
+<div class="sub-heading">Pending Invitations</div>
+<ul class="user-list">
+    {% for invite_id, invite_email, invite_role, expires_at in invites %}
+    <li class="user-row">
+        <div class="user-head" style="margin-bottom:0;">
+            <span class="user-name">{{ invite_email }}</span>
+            <span class="badge">{{ invite_role }}</span>
+            <span class="badge pending">expires {{ expires_at[:10] }}</span>
+            <form method="post" action="{{ url_for('core.admin_revoke_invite', invite_id=invite_id) }}" style="margin-left:auto;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn-small" type="submit">Revoke</button>
+            </form>
+        </div>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<div class="sub-heading">Add Operator (no email)</div>
 <form method="post" action="{{ url_for('core.admin_create_user') }}" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="two-col">

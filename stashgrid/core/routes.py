@@ -34,10 +34,12 @@ def login():
             return render_template("login.html", error=error), 429
 
         with get_db() as conn:
+            # The login field takes a username or an email address (SG-33).
             row = conn.execute(
-                "SELECT id, username, password_hash, role, must_change_password, session_version "
-                "FROM users WHERE username = ?",
-                (username,)
+                "SELECT id, username, password_hash, role, must_change_password, session_version, "
+                "email, email_verified_at "
+                "FROM users WHERE username = ? OR (email IS NOT NULL AND email = ?)",
+                (username, username.lower())
             ).fetchone()
             membership = load_membership(conn, row[0]) if row else None
         # System user has no password and cannot log in
@@ -46,6 +48,11 @@ def login():
                 _ph.verify(row[2], password)
                 # ✅ Credentials valid — establish session
                 _clear_login_failures(username)
+                if row[6] and not row[7]:
+                    # Self-service sign-up: the email must be verified first.
+                    return render_template(
+                        "login.html", unverified_email=row[6],
+                        error="EMAIL NOT VERIFIED // CHECK YOUR INBOX FOR THE LINK"), 403
                 if not membership:
                     # SG-32: every account must belong to a household.
                     logger.warning("Auth: user '%s' has no household; login refused", row[1])
@@ -155,12 +162,18 @@ def _require_member(conn, user_id):
 def admin_users():
     with get_db() as conn:
         users = conn.execute(
-            "SELECT u.id, u.username, m.role, u.must_change_password "
+            "SELECT u.id, u.username, m.role, u.must_change_password, u.email, u.display_name "
             "FROM household_members m JOIN users u ON u.id = m.user_id "
             "WHERE m.household_id = ? AND u.role != 'system' ORDER BY u.username COLLATE NOCASE",
             (current_household_id(),),
         ).fetchall()
-    return render_template("admin_users.html", users=users, roles=ROLES,
+        invites = conn.execute(
+            "SELECT id, email, role, expires_at FROM auth_tokens "
+            "WHERE purpose = 'invite' AND household_id = ? AND used_at IS NULL "
+            "AND expires_at > datetime('now') ORDER BY created_at DESC",
+            (current_household_id(),),
+        ).fetchall()
+    return render_template("admin_users.html", users=users, roles=ROLES, invites=invites,
                            min_len=MIN_PASSWORD_LENGTH)
 
 

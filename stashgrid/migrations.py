@@ -309,10 +309,43 @@ def _m3_households(conn):
     """)
 
 
+def _m4_email_accounts(conn):
+    """Email accounts (SG-33): email login, verification, password reset and
+    household invites.
+
+    users.email holds a verified address, except for accounts created by
+    public sign-up, which can't log in until it's verified. Emails are stored
+    lowercased; the partial unique index allows many users without one.
+    auth_tokens stores only a SHA-256 hash of each emailed token.
+    """
+    _add_column(conn, "users", "email", "TEXT")
+    _add_column(conn, "users", "email_verified_at", "TEXT")
+    _add_column(conn, "users", "display_name", "TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            purpose      TEXT NOT NULL CHECK (purpose IN ('verify_email', 'reset_password', 'invite')),
+            token_hash   TEXT NOT NULL UNIQUE,
+            user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            email        TEXT,
+            household_id INTEGER REFERENCES households(id) ON DELETE CASCADE,
+            role         TEXT,
+            created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at   TEXT NOT NULL,
+            used_at      TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_tokens_lookup ON auth_tokens(purpose, email)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_tokens_household ON auth_tokens(household_id)")
+
+
 MIGRATIONS = [
     (1, "baseline schema (rooms, shelves, inventory, shopping lists, users, audit log)", _m1_baseline),
     (2, "repair dangling references so foreign keys can be enforced", _m2_repair_references),
     (3, "household accounts: households, members, household_id on every tenant table", _m3_households),
+    (4, "email accounts: users.email/display_name, auth_tokens for verify/reset/invite", _m4_email_accounts),
 ]
 
 

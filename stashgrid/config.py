@@ -55,3 +55,28 @@ PHOTOS_DIR = os.path.join(BASE_DIR, "static", "photos")
 os.makedirs(PHOTOS_DIR, exist_ok=True)
 
 SCANNER_STATE_FILE = os.path.join(BASE_DIR, "scanner_state.json")
+
+
+# ── Email accounts (SG-33) ───────────────────────────────────────────────────
+def _env_flag(name, default=False):
+    v = os.environ.get(name)
+    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
+
+
+# Public sign-up creates a new account + household. Off by default so a
+# self-hosted Pi isn't open to registration; the hosted service turns it on.
+SIGNUP_ENABLED = _env_flag("STASHGRID_SIGNUP_ENABLED", False)
+
+# Base URL used in emailed links, e.g. https://app.example.com. Falls back to
+# the URL of the request that triggered the email.
+PUBLIC_BASE_URL = (os.environ.get("STASHGRID_PUBLIC_BASE_URL") or "").rstrip("/")
+
+# Mail: "console" logs emails (development / self-hosting without SMTP);
+# "smtp" sends through any SMTP provider (Postmark, SES, Resend, ...).
+MAIL_BACKEND = (os.environ.get("STASHGRID_MAIL_BACKEND") or "console").strip().lower()
+MAIL_FROM = os.environ.get("STASHGRID_MAIL_FROM") or "StashGrid <no-reply@localhost>"
+SMTP_HOST = os.environ.get("STASHGRID_SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("STASHGRID_SMTP_PORT") or 587)
+SMTP_USER = os.environ.get("STASHGRID_SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("STASHGRID_SMTP_PASSWORD", "")
+SMTP_SECURITY = (os.environ.get("STASHGRID_SMTP_SECURITY") or "starttls").strip().lower()  # starttls | ssl | none

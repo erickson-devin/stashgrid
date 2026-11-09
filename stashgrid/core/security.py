@@ -20,16 +20,26 @@ from stashgrid.core.tenancy import (
 
 # Endpoints reachable without a session. Everything else requires login.
 # The public shopping routes are protected by their own token check instead.
-PUBLIC_ENDPOINTS = {
-    "core.login",
-    "core.logout",   # harmless without a session; avoids /login?next=/logout loops
-    "static",
+PUBLIC_TOKEN_ENDPOINTS = {
     "inventory.shopping_view",
     "inventory.public_shopping_lists",
     "inventory.public_toggle_item",
     "inventory.public_create_list",
     "inventory.public_add_item",
 }
+PUBLIC_ENDPOINTS = {
+    "core.login",
+    "core.logout",   # harmless without a session; avoids /login?next=/logout loops
+    "static",
+    # Email accounts (SG-33): reachable while logged out. They are forms or
+    # emailed links and keep CSRF protection.
+    "core.signup",
+    "core.verify_email",
+    "core.resend_verification",
+    "core.forgot_password",
+    "core.reset_password",
+    "core.accept_invite",
+} | PUBLIC_TOKEN_ENDPOINTS
 
 # Endpoints a headless client may call with X-StashGrid-Key instead of a session.
 SCANNER_KEY_ENDPOINTS = {"inventory.api_scan"}
@@ -73,7 +83,7 @@ def _load_session_user():
         return None
     with get_db() as conn:
         row = conn.execute(
-            "SELECT username, role, must_change_password, session_version "
+            "SELECT username, role, must_change_password, session_version, display_name "
             "FROM users WHERE id = ?", (uid,)
         ).fetchone()
         if not row or row[1] == "system" or row[3] != session.get("session_version", 0):
@@ -81,6 +91,7 @@ def _load_session_user():
             return None
         membership = load_membership(conn, uid, session.get("household_id"))
     session["username"] = row[0]
+    session["display_name"] = row[4] or row[0]
     session["must_change_password"] = bool(row[2])
     if membership:
         g.household_id, g.household_role = membership[0], membership[1]
@@ -122,7 +133,7 @@ def _require_login():
 
 # Public token routes are reached from the shopping link (possibly another
 # device, no session) and are already protected by the unguessable token.
-CSRF_EXEMPT_ENDPOINTS = PUBLIC_ENDPOINTS - {"core.login"}
+CSRF_EXEMPT_ENDPOINTS = PUBLIC_TOKEN_ENDPOINTS | {"core.logout"}
 CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
@@ -228,6 +239,35 @@ def _record_login_failure(username):
 def _clear_login_failures(username):
     with _login_failures_lock:
         _login_failures.pop(_login_key(username), None)
+
+
+class Throttle:
+    """In-memory sliding-window rate limit (SG-33: sign-up, password reset,
+    verification resend, invites). Every attempt counts, not just failures.
+    Per process; resets on restart."""
+
+    def __init__(self, limit, window_seconds):
+        self.limit, self.window = limit, window_seconds
+        self._hits = {}
+        self._lock = threading.Lock()
+
+    def hit(self, key):
+        """Record an attempt. Returns seconds to wait if over the limit, else 0."""
+        now = time.time()
+        with self._lock:
+            stamps = [t for t in self._hits.get(key, []) if now - t < self.window]
+            if len(stamps) >= self.limit:
+                self._hits[key] = stamps
+                return int(self.window - (now - stamps[0])) + 1
+            stamps.append(now)
+            self._hits[key] = stamps
+            if len(self._hits) > 10000:
+                self._hits.clear()
+            return 0
+
+    def reset(self):
+        with self._lock:
+            self._hits.clear()
 
 
 # ── Security headers (SG-05) ─────────────────────────────────────────────────
