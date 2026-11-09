@@ -69,6 +69,7 @@
             <span style="font-size: 11px; color: var(--dim)">SELECTED: <strong>{{ room_info[1] }}</strong></span>
             {% if room_info[2] != 1 %}
             <form method="post" action="/api/rooms/{{ room_info[0] }}/set-default" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn-action btn-secondary" style="font-size:10px; padding:2px 6px;">SET AS
                     DEFAULT</button>
             </form>
@@ -84,6 +85,7 @@
     <div class="control-block">
         <h3>Construct New Storage Structure</h3>
         <form method="post" action="/api/rooms" class="new-room-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="text" name="name" placeholder="Room Name (e.g., Garage)" required>
             <input type="number" name="shelf_count" placeholder="Shelves" value="4" min="1" max="20"
                 title="Number of Shelves">
@@ -124,6 +126,7 @@
         <div class="edit-room-section">
             <label>Expand Capacity: Add Shelves</label>
             <form id="add-shelves-form" method="post" action="" class="add-shelves-row">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="number" name="add_count" placeholder="+Qty" value="1" min="1" max="20"
                     title="Number of shelves to add">
                 <button type="submit" class="btn-action">ADD SHELVES</button>
@@ -135,6 +138,7 @@
             <label>&#9888; Danger Zone</label>
             <form id="delete-room-form" method="post" action=""
                 onsubmit="return confirm('CONFIRM: Permanently delete this room and ALL its inventory data?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn-danger">&#10005; DELETE THIS ROOM</button>
             </form>
         </div>

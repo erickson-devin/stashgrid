@@ -85,12 +85,14 @@
         </div>
         <div class="user-actions">
             <form method="post" action="{{ url_for('admin_reset_password', user_id=user_id) }}" autocomplete="off">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input class="field-input" type="password" name="password" placeholder="temporary password"
                     autocomplete="new-password" minlength="{{ min_len }}" required
                     aria-label="Temporary password for {{ username }}">
                 <button class="btn-small" type="submit">Reset</button>
             </form>
             <form method="post" action="{{ url_for('admin_set_role', user_id=user_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <select class="field-input" name="role" aria-label="Role for {{ username }}">
                     {% for r in roles %}
                     <option value="{{ r }}" {{ 'selected' if r == role }}>{{ r }}</option>
@@ -105,6 +107,7 @@
 
 <div class="sub-heading">Add Operator</div>
 <form method="post" action="{{ url_for('admin_create_user') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="two-col">
         <div class="field-group">
             <label class="field-label" for="new_username">Username</label>

@@ -92,6 +92,7 @@
 
                 <form method="post" action="/edit/{{ item[0] }}" class="edit-form"
                     style="margin-top:8px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="room_id" value="{{ room_info[0] }}">
                     <input type="text" name="name" value="{{ item[2] or '' }}" placeholder="Update Name..."
                         style="width:100%; margin-bottom:4px;">
@@ -122,6 +123,7 @@
                 <div style="display:flex; gap:8px; margin-top:8px;">
                     <form method="post" action="/remove/{{ item[0] }}" style="flex:1;"
                         onsubmit="return confirm('Decrement asset pool by 1?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="room_id" value="{{ room_info[0] }}">
                         <input type="hidden" name="amount" value="1">
                         <button type="submit"
@@ -130,6 +132,7 @@
                     </form>
                     <form method="post" action="/delete/{{ item[0] }}" style="flex:1;"
                         onsubmit="return confirm('Purge item entry completely?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="room_id" value="{{ room_info[0] }}">
                         <button type="submit"
                             style="width:100%; border: 1px solid var(--magenta); color:var(--magenta); background:transparent; cursor:pointer; padding:6px 0; font-family:inherit; font-size:11px;">PURGE
