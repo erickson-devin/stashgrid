@@ -115,7 +115,16 @@ python scanner.py
 
 ```
 stashgrid/
-├── app.py              # Flask web app
+├── app.py              # Entry point: builds the app and runs it (kiosk + HTTPS)
+├── stashgrid/          # Application package
+│   ├── __init__.py     #   create_app() factory
+│   ├── config.py       #   paths, env settings, logging, shopping token
+│   ├── extensions.py   #   CSRF + password hasher
+│   ├── db.py           #   schema setup
+│   ├── core/           #   login, users, audit log, security headers, kiosk
+│   ├── inventory/      #   rooms, shelves, items, scanning, shopping lists
+│   ├── library/        #   books (coming later)
+│   └── services/       #   barcode lookups
 ├── scanner.py          # USB HID barcode scanner service (Pi only)
 ├── requirements.txt    # Python dependencies
 ├── setup.sh            # One-shot automated setup script
