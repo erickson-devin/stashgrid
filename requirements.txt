@@ -4,6 +4,9 @@
 # Core web framework
 flask>=3.0.0
 
+# CSRF protection for forms and fetch() calls (SG-04)
+flask-wtf>=1.2.0
+
 # HTTP client (used in app.py and scanner.py for barcode lookups)
 requests>=2.31.0
 

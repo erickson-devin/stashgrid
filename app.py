@@ -1,4 +1,5 @@
 from flask import Flask, request, render_template, jsonify, redirect, session, url_for, abort, g, flash
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from functools import wraps
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
@@ -39,7 +40,13 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(days=30),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    # CSRF (SG-04): checked explicitly in _csrf_check so public token routes
+    # and scanner-key requests can be skipped. Tokens live as long as the
+    # session, so a kiosk left open for hours can still submit forms.
+    WTF_CSRF_CHECK_DEFAULT=False,
+    WTF_CSRF_TIME_LIMIT=None,
 )
+csrf = CSRFProtect(app)
 DB = "inventory.db"
 
 # Shared key that lets a headless client (the hardware scanner, see SG-10) call
@@ -227,6 +234,7 @@ def log_audit(user_id, action, target_type, target_id, conn=None):
 # The public shopping routes are protected by their own token check instead.
 PUBLIC_ENDPOINTS = {
     "login",
+    "logout",   # harmless without a session; avoids /login?next=/logout loops
     "static",
     "shopping_view",
     "public_shopping_lists",
@@ -305,8 +313,49 @@ def _require_login():
         return None
     if endpoint in SCANNER_KEY_ENDPOINTS and _valid_scanner_key():
         g.user_id = SYSTEM_USER_ID
+        g.auth_via_key = True
         return None
     return _unauthenticated_response()
+
+
+# Public token routes are reached from the shopping link (possibly another
+# device, no session) and are already protected by the unguessable token.
+CSRF_EXEMPT_ENDPOINTS = PUBLIC_ENDPOINTS - {"login"}
+CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+@app.before_request
+def _csrf_check():
+    """SG-04: every state-changing request from a browser session must carry
+    a CSRF token (form field csrf_token or X-CSRFToken header). Runs after
+    _require_login. The login form is covered too (login CSRF)."""
+    if request.method in CSRF_SAFE_METHODS:
+        return None
+    if request.endpoint in CSRF_EXEMPT_ENDPOINTS or request.endpoint == "static":
+        return None
+    if g.get("auth_via_key"):
+        return None  # headless scanner: no browser, no cookies to abuse
+    csrf.protect()
+    return None
+
+
+@app.errorhandler(CSRFError)
+def _csrf_error(e):
+    logger.warning("CSRF rejected %s %s: %s", request.method, request.path, e.description)
+    # Browser form submissions (some post to /api/... paths) send Accept: text/html;
+    # fetch() calls don't. Forms get a redirect + message, fetch gets JSON.
+    is_page_form = "text/html" in request.headers.get("Accept", "")
+    if _wants_json() and not is_page_form:
+        return jsonify({"error": "SECURITY TOKEN MISSING OR EXPIRED // RELOAD THE PAGE"}), 400
+    if request.endpoint == "login":
+        return render_template(
+            "login.html", error="SECURITY TOKEN EXPIRED // PLEASE TRY AGAIN"
+        ), 400
+    flash("ERROR: SECURITY TOKEN EXPIRED // PLEASE TRY AGAIN")
+    back = request.referrer or ""
+    host_root = request.host_url
+    target = back[len(host_root) - 1:] if back.startswith(host_root) else "/"
+    return redirect(_safe_next(target))
 
 
 # ── Password policy & login throttling (SG-03) ───────────────────────────────

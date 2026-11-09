@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <title>Storage Inventory // SPATIAL HUD</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     {% include '_escape_js.html' %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap"
@@ -1087,11 +1088,21 @@
     </div>
 
     <script>
+        // Every same-origin state-changing fetch carries the CSRF token (SG-04).
         // Session expired → any API call gets 401; send the user back to login.
         (function () {
             const origFetch = window.fetch;
-            window.fetch = async function (...args) {
-                const resp = await origFetch.apply(this, args);
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const SAFE = ['GET', 'HEAD', 'OPTIONS'];
+            window.fetch = async function (input, init = {}) {
+                const method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+                const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+                if (!SAFE.includes(method) && url.origin === location.origin) {
+                    const headers = new Headers((init && init.headers) || (input && input.headers) || {});
+                    if (!headers.has('X-CSRFToken')) headers.set('X-CSRFToken', csrfToken);
+                    init = Object.assign({}, init, { headers });
+                }
+                const resp = await origFetch.call(this, input, init);
                 if (resp.status === 401) {
                     window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
                 }
