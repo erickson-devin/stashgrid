@@ -177,9 +177,142 @@ def _m2_repair_references(conn):
             logger.warning("DB repair: %s: %d row(s)", what, n)
 
 
+DEFAULT_HOUSEHOLD_ID = 1
+TENANT_TABLES = ("rooms", "shelves", "inventory", "shopping_lists", "shopping_list_items", "audit_logs")
+
+
+def _m3_households(conn):
+    """Household accounts (SG-32). Every room, shelf, item, shopping list and
+    list item belongs to exactly one household. Existing data moves into a
+    default household (id 1) and existing users become its members.
+
+    SQLite can't add a NOT NULL + REFERENCES column without rebuilding the
+    table, so household_id is added as a nullable foreign key and the rules
+    are enforced with triggers instead:
+      - rooms and shopping_lists (root rows) must be inserted with a household;
+      - shelves, inventory and shopping_list_items inherit the household of
+        their room / shelf / list when inserted without one, and can never
+        point at a room, shelf or list from a different household.
+    The app also scopes every query (stashgrid/core/tenancy.py); the triggers
+    are a second line of defence and keep scanner.py's direct writes correct.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS households (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            name               TEXT NOT NULL,
+            created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            -- reserved for billing (SG-36)
+            plan               TEXT,
+            plan_status        TEXT,
+            trial_ends_at      TEXT,
+            current_period_end TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS household_members (
+            household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+            user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role         TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+            created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (household_id, user_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_household_members_user ON household_members(user_id)")
+    # Operator of the whole service (hosted mode). Not a household role.
+    _add_column(conn, "users", "is_superuser", "INTEGER NOT NULL DEFAULT 0")
+
+    conn.execute(
+        "INSERT OR IGNORE INTO households (id, name) VALUES (?, 'Home')", (DEFAULT_HOUSEHOLD_ID,)
+    )
+
+    for table in TENANT_TABLES:
+        _add_column(conn, table, "household_id", "INTEGER REFERENCES households(id)")
+        conn.execute(f"UPDATE {table} SET household_id = ? WHERE household_id IS NULL", (DEFAULT_HOUSEHOLD_ID,))
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_household ON {table}(household_id)")
+
+    # Existing users join the default household. The first admin owns it.
+    users = conn.execute(
+        "SELECT id, role FROM users WHERE role != 'system' ORDER BY id"
+    ).fetchall()
+    owner_id = next((uid for uid, role in users if role == "admin"), None)
+    for uid, role in users:
+        member_role = "owner" if uid == owner_id else ("admin" if role == "admin" else "member")
+        conn.execute(
+            "INSERT OR IGNORE INTO household_members (household_id, user_id, role) VALUES (?, ?, ?)",
+            (DEFAULT_HOUSEHOLD_ID, uid, member_role),
+        )
+    # Self-hosted installs: existing admins operate their own server.
+    conn.execute("UPDATE users SET is_superuser = 1 WHERE role = 'admin'")
+
+    # ── triggers ────────────────────────────────────────────────────────────
+    for root in ("rooms", "shopping_lists"):
+        conn.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{root}_household_required
+            BEFORE INSERT ON {root} WHEN NEW.household_id IS NULL
+            BEGIN SELECT RAISE(ABORT, 'household_id required on {root}'); END
+        """)
+
+    # child table, parent table, child FK column
+    children = [
+        ("shelves", "rooms", "room_id"),
+        ("shopping_list_items", "shopping_lists", "list_id"),
+    ]
+    for child, parent, col in children:
+        conn.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{child}_household_ins
+            AFTER INSERT ON {child}
+            BEGIN
+                UPDATE {child} SET household_id = (SELECT household_id FROM {parent} WHERE id = NEW.{col})
+                 WHERE id = NEW.id AND household_id IS NULL;
+                SELECT RAISE(ABORT, 'household mismatch on {child}')
+                 WHERE (SELECT household_id FROM {child} WHERE id = NEW.id) IS NOT
+                       (SELECT household_id FROM {parent} WHERE id = NEW.{col});
+            END
+        """)
+        conn.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{child}_household_upd
+            AFTER UPDATE OF household_id, {col} ON {child}
+            BEGIN
+                SELECT RAISE(ABORT, 'household mismatch on {child}')
+                 WHERE NEW.household_id IS NOT (SELECT household_id FROM {parent} WHERE id = NEW.{col});
+            END
+        """)
+
+    # inventory: household comes from its room, else its shelf. Removed items
+    # may have neither (room deleted) and keep the household they had.
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_inventory_household_ins
+        AFTER INSERT ON inventory
+        BEGIN
+            UPDATE inventory SET household_id = COALESCE(
+                    (SELECT household_id FROM rooms WHERE id = NEW.room_id),
+                    (SELECT household_id FROM shelves WHERE id = NEW.shelf_id))
+             WHERE id = NEW.id AND household_id IS NULL;
+            SELECT RAISE(ABORT, 'household_id required on inventory')
+             WHERE (SELECT household_id FROM inventory WHERE id = NEW.id) IS NULL;
+            SELECT RAISE(ABORT, 'household mismatch on inventory')
+             WHERE (NEW.room_id IS NOT NULL AND (SELECT household_id FROM inventory WHERE id = NEW.id)
+                        IS NOT (SELECT household_id FROM rooms WHERE id = NEW.room_id))
+                OR (NEW.shelf_id IS NOT NULL AND (SELECT household_id FROM inventory WHERE id = NEW.id)
+                        IS NOT (SELECT household_id FROM shelves WHERE id = NEW.shelf_id));
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_inventory_household_upd
+        AFTER UPDATE OF household_id, room_id, shelf_id ON inventory
+        BEGIN
+            SELECT RAISE(ABORT, 'household mismatch on inventory')
+             WHERE NEW.household_id IS NULL
+                OR (NEW.room_id IS NOT NULL AND NEW.household_id IS NOT (SELECT household_id FROM rooms WHERE id = NEW.room_id))
+                OR (NEW.shelf_id IS NOT NULL AND NEW.household_id IS NOT (SELECT household_id FROM shelves WHERE id = NEW.shelf_id));
+        END
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline schema (rooms, shelves, inventory, shopping lists, users, audit log)", _m1_baseline),
     (2, "repair dangling references so foreign keys can be enforced", _m2_repair_references),
+    (3, "household accounts: households, members, household_id on every tenant table", _m3_households),
 ]
 
 

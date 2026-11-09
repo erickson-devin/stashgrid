@@ -13,6 +13,9 @@ from stashgrid.db import get_db
 from stashgrid.config import SCANNER_API_KEY, SYSTEM_USER_ID, logger
 from stashgrid.core import bp
 from stashgrid.extensions import csrf
+from stashgrid.core.tenancy import (
+    DEFAULT_HOUSEHOLD_ID, ROLES as TENANT_ROLES, is_manager, load_membership,
+)
 
 
 # Endpoints reachable without a session. Everything else requires login.
@@ -61,7 +64,10 @@ PASSWORD_CHANGE_ENDPOINTS = {"core.change_password", "core.logout", "static"}
 def _load_session_user():
     """Validate the session against the users table. Clears the session if the
     user is gone, can't log in, or their session_version moved on (password or
-    role changed). Refreshes the cached role so demotions apply immediately."""
+    role changed). Loads the user's current household and their role in it
+    (SG-32) so demotions and removals apply immediately."""
+    g.household_id = None
+    g.household_role = None
     uid = session.get("user_id")
     if not uid:
         return None
@@ -70,12 +76,20 @@ def _load_session_user():
             "SELECT username, role, must_change_password, session_version "
             "FROM users WHERE id = ?", (uid,)
         ).fetchone()
-    if not row or row[1] == "system" or row[3] != session.get("session_version", 0):
-        session.clear()
-        return None
+        if not row or row[1] == "system" or row[3] != session.get("session_version", 0):
+            session.clear()
+            return None
+        membership = load_membership(conn, uid, session.get("household_id"))
     session["username"] = row[0]
-    session["role"] = row[1]
     session["must_change_password"] = bool(row[2])
+    if membership:
+        g.household_id, g.household_role = membership[0], membership[1]
+        session["household_id"], session["household_name"] = membership[0], membership[2]
+        session["role"] = membership[1]
+    else:
+        session.pop("household_id", None)
+        session.pop("household_name", None)
+        session["role"] = None
     return uid
 
 
@@ -99,6 +113,9 @@ def _require_login():
     if endpoint in SCANNER_KEY_ENDPOINTS and _valid_scanner_key():
         g.user_id = SYSTEM_USER_ID
         g.auth_via_key = True
+        # One global scanner key for now; it acts on the default household.
+        # Per-household keys: SG-35.
+        g.household_id, g.household_role = DEFAULT_HOUSEHOLD_ID, "member"
         return None
     return _unauthenticated_response()
 
@@ -163,7 +180,7 @@ def _integrity_error(e):
 MIN_PASSWORD_LENGTH = 8
 WEAK_PASSWORDS = {"admin", "password", "password1", "12345678", "123456789", "stashgrid", "changeme"}
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
-ROLES = ("user", "admin")
+ROLES = TENANT_ROLES  # household membership roles (SG-32)
 
 
 def _password_problem(password, username):
@@ -255,13 +272,13 @@ def login_required(f):
 
 
 def admin_required(f):
-    """Decorator: require an authenticated admin session.
+    """Decorator: require an owner or admin of the current household (SG-32).
     Returns HTTP 403 (not a redirect) so direct API abuse fails loudly."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("user_id"):
             return _unauthenticated_response()
-        if session.get("role") != "admin":
+        if not is_manager():
             return jsonify({"error": "CLEARANCE DENIED // ADMIN REQUIRED"}), 403
         return f(*args, **kwargs)
     return decorated
