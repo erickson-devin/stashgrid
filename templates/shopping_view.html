@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>StashGrid // Shopping List</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <script src="{{ url_for('static', filename='js/escape.js') }}"></script>
     <meta name="theme-color" content="#05070f">
     <meta name="description" content="StashGrid live shopping list — check off items as you shop.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -914,7 +915,7 @@
                     onclick="switchTab(${typeof t.id === 'string' ? `'${t.id}'` : t.id})"
                     id="tab-${t.id}">
                     ${escHtml(t.label)}
-                    <span class="sg-tab-count">${t.count}</span>
+                    <span class="sg-tab-count">${Number(t.count)}</span>
                 </button>`).join('');
         }
 
@@ -980,7 +981,7 @@
                         ${item.barcode && !item.barcode.startsWith('MANUAL-')
                             ? `<span class="sg-item-barcode">${escHtml(item.barcode)}</span>` : ''}
                     </div>
-                    <span class="sg-item-qty">&times;${item.requested_qty}</span>
+                    <span class="sg-item-qty">&times;${Number(item.requested_qty)}</span>
                 </li>`;
         }
 
@@ -1127,12 +1128,7 @@
 
         // ── Utilities ──────────────────────────────────────────────────────────
 
-        function escHtml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        }
+        // escHtml() comes from static/js/escape.js
 
         let _toastTimer = null;
         function showToast(msg, isError = false) {
