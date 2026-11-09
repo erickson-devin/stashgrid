@@ -1,6 +1,12 @@
 __pycache__/
 *.pyc
 inventory.db
+inventory.db-wal
+inventory.db-shm
+backups/
+# Runtime secrets / state — never commit (SG-01)
+shopping_token.txt
+scanner_state.json
 .env
 venv/
 logs/

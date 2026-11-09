@@ -2,13 +2,13 @@
 import hashlib
 import json
 import os
-import sqlite3
 from datetime import datetime
 
 from flask import request, render_template, jsonify, redirect, session, g
 from PIL import Image
 
-from stashgrid.config import DB, PHOTOS_DIR, SCANNER_STATE_FILE, SYSTEM_USER_ID, logger
+from stashgrid.db import get_db
+from stashgrid.config import PHOTOS_DIR, SCANNER_STATE_FILE, SYSTEM_USER_ID, logger
 from stashgrid.core.audit import log_audit
 from stashgrid.core.security import admin_required
 from stashgrid.inventory import bp
@@ -18,14 +18,14 @@ from stashgrid.inventory.shopping import _auto_add_to_shopping_list
 
 def _get_rooms_list():
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         return conn.execute("SELECT id, name, is_default FROM rooms ORDER BY name ASC").fetchall()
 
 
 def _get_room_layout(room_id):
     if not room_id:
         return None, []
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         room = conn.execute("SELECT id, name, is_default FROM rooms WHERE id = ?", (room_id,)).fetchone()
         if not room:
             return None, []
@@ -34,7 +34,7 @@ def _get_room_layout(room_id):
 
 
 def _fetch_items_by_layout(room_id=None, q=""):
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         if q:
             like = f"%{q}%"
             rows = conn.execute("""
@@ -63,7 +63,7 @@ def _fetch_items_by_layout(room_id=None, q=""):
 def _resolve_room_id(raw_id, rooms):
     """Safely extracts fallback integers to avoid API data parameter crashes."""
     if not raw_id or str(raw_id).strip() in ("", "None", "undefined"):
-        with sqlite3.connect(DB) as conn:
+        with get_db() as conn:
             default_room = conn.execute("SELECT id FROM rooms WHERE is_default = 1 LIMIT 1").fetchone()
             if default_room:
                 return int(default_room[0])
@@ -85,7 +85,7 @@ def index():
     room_info, shelves = _get_room_layout(selected_room_id)
     items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         store_names = [
             row[0] for row in conn.execute(
                 "SELECT DISTINCT store_name FROM shopping_lists WHERE store_name IS NOT NULL AND store_name != '' ORDER BY store_name ASC"
@@ -111,7 +111,7 @@ def create_room():
     if not name:
         return redirect("/")
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         existing = conn.execute("SELECT count(*) FROM rooms").fetchone()[0]
         is_default = 1 if existing == 0 else 0
 
@@ -127,7 +127,7 @@ def create_room():
 
 @bp.route("/api/rooms/<int:room_id>/set-default", methods=["POST"])
 def set_default_room(room_id):
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         conn.execute("UPDATE rooms SET is_default = 0")
         conn.execute("UPDATE rooms SET is_default = 1 WHERE id = ?", (room_id,))
     return redirect(f"/?room_id={room_id}")
@@ -137,7 +137,7 @@ def set_default_room(room_id):
 def add_shelves_to_room(room_id):
     """Append additional shelves to an existing room."""
     add_count = int(request.form.get("add_count", 1))
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         room = conn.execute("SELECT id FROM rooms WHERE id = ?", (room_id,)).fetchone()
         if not room:
             return redirect("/")
@@ -155,11 +155,21 @@ def add_shelves_to_room(room_id):
 @admin_required
 def delete_room(room_id):
     """Delete a room, its shelves, and soft-delete all its inventory items."""
-    with sqlite3.connect(DB) as conn:
-        # Soft-delete all inventory belonging to this room
+    with get_db() as conn:
+        # Soft-delete all inventory belonging to this room. With foreign keys
+        # enforced (SG-07) the rows must also let go of the room and shelves
+        # being deleted; they stay in history as removed items without a location.
         conn.execute(
             "UPDATE inventory SET is_active = 0, quantity = 0, removed_at = CURRENT_TIMESTAMP, "
-            "removed_reason = 'Room deleted via HUD' WHERE room_id = ?",
+            "removed_reason = 'Room deleted via HUD', room_id = NULL, shelf_id = NULL "
+            "WHERE room_id = ?",
+            (room_id,)
+        )
+        # Items filed in another room but pointing at one of this room's shelves
+        # (inconsistent legacy data): keep them, just clear the shelf.
+        conn.execute(
+            "UPDATE inventory SET shelf_id = NULL "
+            "WHERE shelf_id IN (SELECT id FROM shelves WHERE room_id = ?)",
             (room_id,)
         )
         # Hard-delete shelves and room (FK cascade handles shelves if pragma is on, but explicit is safer)
@@ -185,7 +195,7 @@ def api_scan():
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         existing = conn.execute("""
             SELECT id, quantity, name, photo_path FROM inventory
             WHERE barcode = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
@@ -241,7 +251,7 @@ def upload_item_photo(item_id):
         img.save(save_path, "JPEG", quality=85)
 
         photo_url = f"/static/photos/{filename}"
-        with sqlite3.connect(DB) as conn:
+        with get_db() as conn:
             conn.execute("UPDATE inventory SET photo_path = ? WHERE id = ?", (photo_url, item_id))
 
         logger.info("Photo saved for item %d at %s", item_id, save_path)
@@ -276,7 +286,7 @@ def inventory_hash():
     selected_room_id = _resolve_room_id(request.args.get("room_id"), rooms)
 
     items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         sl_lists = conn.execute(
             "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY id"
         ).fetchall()
@@ -297,7 +307,7 @@ def api_items():
     room_info, shelves = _get_room_layout(selected_room_id)
     items = _fetch_items_by_layout(room_id=selected_room_id, q=q)
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         store_names = [
             row[0] for row in conn.execute(
                 "SELECT DISTINCT store_name FROM shopping_lists WHERE store_name IS NOT NULL AND store_name != '' ORDER BY store_name ASC"
@@ -317,7 +327,7 @@ def edit_item(item_id):
     preferred_store = request.form.get("preferred_store", "Costco").strip() or "Costco"
     new_shelf_id_raw = request.form.get("new_shelf_id", "").strip()
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         if new_shelf_id_raw.isdigit():
             # Relocate asset: update shelf_id alongside the standard metadata fields
             conn.execute("""
@@ -345,7 +355,7 @@ def remove_item_quantity(item_id):
     reason = request.form.get("reason", "Removed via HUD")
     room_id = request.form.get("room_id")
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         item = conn.execute(
             "SELECT quantity, barcode, name, low_stock_threshold, preferred_store FROM inventory WHERE id = ? AND is_active = 1",
             (item_id,)
@@ -384,7 +394,7 @@ def delete_item(item_id):
     reason = request.form.get("reason", "Purged via terminal")
     room_id = request.form.get("room_id")
 
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         conn.execute("UPDATE inventory SET quantity = 0, is_active = 0, removed_at = CURRENT_TIMESTAMP, removed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reason, item_id))
 
     log_audit(session.get("user_id"), "delete_item", "item", item_id)

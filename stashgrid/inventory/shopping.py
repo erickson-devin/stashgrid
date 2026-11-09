@@ -1,10 +1,10 @@
 """Shopping lists, auto-add on low stock, restock and the public token routes (moved from app.py, SG-06)."""
-import sqlite3
 from datetime import datetime
 
 from flask import request, render_template, jsonify, abort
 
-from stashgrid.config import DB, SHOPPING_TOKEN, logger
+from stashgrid.db import get_db
+from stashgrid.config import SHOPPING_TOKEN, logger
 from stashgrid.core.security import admin_required
 from stashgrid.inventory import bp
 
@@ -65,7 +65,7 @@ def _auto_add_to_shopping_list(conn, barcode, name, preferred_store="Costco"):
 
 @bp.route("/api/shopping-lists")
 def get_shopping_lists():
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         lists = conn.execute(
             "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY is_default DESC, name ASC"
         ).fetchall()
@@ -94,7 +94,7 @@ def create_shopping_list():
     store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
     if not name:
         return jsonify({"error": "List name is required"}), 400
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         existing_count = conn.execute("SELECT COUNT(*) FROM shopping_lists").fetchone()[0]
         is_default = 1 if existing_count == 0 else 0
         cursor = conn.execute(
@@ -115,7 +115,7 @@ def add_to_shopping_list():
     qty = int(request.form.get("qty") or data.get("qty") or 1)
     if not list_id or not barcode:
         return jsonify({"error": "list_id and barcode are required"}), 400
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         existing = conn.execute(
             "SELECT id FROM shopping_list_items WHERE list_id = ? AND barcode = ? AND is_completed = 0",
             (list_id, barcode)
@@ -132,7 +132,7 @@ def add_to_shopping_list():
 
 @bp.route("/api/shopping-lists/toggle-complete/<int:item_id>", methods=["POST"])
 def toggle_shopping_item(item_id):
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         row = conn.execute(
             "SELECT is_completed FROM shopping_list_items WHERE id = ?", (item_id,)
         ).fetchone()
@@ -154,7 +154,7 @@ def commit_restock():
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     restocked = []
     unknown = []
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         completed = conn.execute(
             "SELECT id, barcode, name, requested_qty FROM shopping_list_items "
             "WHERE list_id = ? AND is_completed = 1",
@@ -180,7 +180,7 @@ def commit_restock():
 
 @bp.route("/api/shopping-lists/<int:list_id>/set-default", methods=["POST"])
 def set_default_shopping_list(list_id):
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         conn.execute("UPDATE shopping_lists SET is_default = 0")
         conn.execute("UPDATE shopping_lists SET is_default = 1 WHERE id = ?", (list_id,))
     return jsonify({"ok": True})
@@ -193,7 +193,7 @@ def rename_shopping_list(list_id):
     store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
     if not name:
         return jsonify({"error": "Name is required"}), 400
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         conn.execute(
             "UPDATE shopping_lists SET name = ?, store_name = ? WHERE id = ?",
             (name, store_name, list_id)
@@ -204,7 +204,7 @@ def rename_shopping_list(list_id):
 @bp.route("/api/shopping-lists/<int:list_id>/delete", methods=["POST"])
 @admin_required
 def delete_shopping_list(list_id):
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         lst = conn.execute(
             "SELECT is_default FROM shopping_lists WHERE id = ?", (list_id,)
         ).fetchone()
@@ -224,7 +224,7 @@ def delete_shopping_list(list_id):
 
 def _get_shopping_lists_payload():
     """Shared data-fetch used by both the local and public shopping list APIs."""
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         lists = conn.execute(
             "SELECT id, name, store_name, is_default FROM shopping_lists ORDER BY is_default DESC, name ASC"
         ).fetchall()
@@ -267,7 +267,7 @@ def public_toggle_item(token, item_id):
     """Public API: toggle a shopping list item's completion state. Token-secured."""
     if token != SHOPPING_TOKEN:
         abort(404)
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         row = conn.execute(
             "SELECT is_completed FROM shopping_list_items WHERE id = ?", (item_id,)
         ).fetchone()
@@ -291,7 +291,7 @@ def public_create_list(token):
     store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
     if not name:
         return jsonify({"error": "List name is required"}), 400
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         existing_count = conn.execute("SELECT COUNT(*) FROM shopping_lists").fetchone()[0]
         is_default = 1 if existing_count == 0 else 0
         cursor = conn.execute(
@@ -317,7 +317,7 @@ def public_add_item(token):
         return jsonify({"error": "list_id and name are required"}), 400
     # Use barcode if provided, otherwise generate a placeholder
     effective_barcode = barcode if barcode else f"MANUAL-{list_id}-{int(datetime.now().timestamp())}"
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         # Verify list exists
         if not conn.execute("SELECT id FROM shopping_lists WHERE id = ?", (list_id,)).fetchone():
             return jsonify({"error": "List not found"}), 404

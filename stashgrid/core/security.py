@@ -9,7 +9,8 @@ from functools import wraps
 from flask import request, render_template, jsonify, redirect, session, url_for, g, flash
 from flask_wtf.csrf import CSRFError
 
-from stashgrid.config import DB, SCANNER_API_KEY, SYSTEM_USER_ID, logger
+from stashgrid.db import get_db
+from stashgrid.config import SCANNER_API_KEY, SYSTEM_USER_ID, logger
 from stashgrid.core import bp
 from stashgrid.extensions import csrf
 
@@ -64,7 +65,7 @@ def _load_session_user():
     uid = session.get("user_id")
     if not uid:
         return None
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         row = conn.execute(
             "SELECT username, role, must_change_password, session_version "
             "FROM users WHERE id = ?", (uid,)
@@ -136,10 +137,26 @@ def _csrf_error(e):
             "login.html", error="SECURITY TOKEN EXPIRED // PLEASE TRY AGAIN"
         ), 400
     flash("ERROR: SECURITY TOKEN EXPIRED // PLEASE TRY AGAIN")
+    return redirect(_safe_next(_same_site_referrer()))
+
+
+def _same_site_referrer():
     back = request.referrer or ""
     host_root = request.host_url
-    target = back[len(host_root) - 1:] if back.startswith(host_root) else "/"
-    return redirect(_safe_next(target))
+    return back[len(host_root) - 1:] if back.startswith(host_root) else "/"
+
+
+@bp.app_errorhandler(sqlite3.IntegrityError)
+def _integrity_error(e):
+    """SG-07: foreign keys are enforced, so a request naming a room, shelf or
+    list that doesn't exist (stale page, hand-made request) fails here instead
+    of silently writing an orphaned row. The transaction was rolled back."""
+    logger.warning("DB integrity error on %s %s: %s", request.method, request.path, e)
+    is_page_form = "text/html" in request.headers.get("Accept", "")
+    if _wants_json() and not is_page_form:
+        return jsonify({"error": "INVALID REFERENCE // THAT ROOM, SHELF OR LIST NO LONGER EXISTS"}), 400
+    flash("ERROR: THAT ROOM, SHELF OR LIST NO LONGER EXISTS // RELOAD AND TRY AGAIN")
+    return redirect(_safe_next(_same_site_referrer()))
 
 
 # ── Password policy & login throttling (SG-03) ───────────────────────────────

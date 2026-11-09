@@ -4,7 +4,8 @@ import sqlite3
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from flask import request, render_template, redirect, session, url_for, abort, g, flash
 
-from stashgrid.config import DB, logger
+from stashgrid.db import get_db
+from stashgrid.config import logger
 from stashgrid.core import bp
 from stashgrid.core.audit import log_audit
 from stashgrid.extensions import password_hasher as _ph
@@ -31,7 +32,7 @@ def login():
             error = f"TOO MANY FAILED ATTEMPTS // TRY AGAIN IN {retry_after}s"
             return render_template("login.html", error=error), 429
 
-        with sqlite3.connect(DB) as conn:
+        with get_db() as conn:
             row = conn.execute(
                 "SELECT id, username, password_hash, role, must_change_password, session_version "
                 "FROM users WHERE username = ?",
@@ -47,7 +48,7 @@ def login():
                 if must_change and not row[4]:
                     # Existing installs still on admin/admin (or another weak
                     # password) get flagged the first time they log in.
-                    with sqlite3.connect(DB) as conn:
+                    with get_db() as conn:
                         conn.execute("UPDATE users SET must_change_password = 1 WHERE id = ?", (row[0],))
                 session.clear()
                 session.permanent   = True
@@ -80,7 +81,7 @@ def change_password():
         current = request.form.get("current_password", "")
         new = request.form.get("new_password", "")
         confirm = request.form.get("confirm_password", "")
-        with sqlite3.connect(DB) as conn:
+        with get_db() as conn:
             row = conn.execute(
                 "SELECT password_hash FROM users WHERE id = ?", (g.user_id,)
             ).fetchone()
@@ -100,7 +101,7 @@ def change_password():
             error = _password_problem(new, session.get("username"))
 
         if not error:
-            with sqlite3.connect(DB) as conn:
+            with get_db() as conn:
                 conn.execute(
                     "UPDATE users SET password_hash = ?, must_change_password = 0, "
                     "session_version = session_version + 1 WHERE id = ?",
@@ -129,7 +130,7 @@ def _admin_count(conn):
 @bp.route("/admin/users")
 @admin_required
 def admin_users():
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         users = conn.execute(
             "SELECT id, username, role, must_change_password FROM users "
             "WHERE role != 'system' ORDER BY username COLLATE NOCASE"
@@ -152,7 +153,7 @@ def admin_create_user():
         flash("ERROR: " + problem)
     else:
         try:
-            with sqlite3.connect(DB) as conn:
+            with get_db() as conn:
                 cur = conn.execute(
                     "INSERT INTO users (username, password_hash, role, must_change_password) "
                     "VALUES (?, ?, ?, 1)",
@@ -171,7 +172,7 @@ def admin_create_user():
 @admin_required
 def admin_reset_password(user_id):
     password = request.form.get("password", "")
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         row = conn.execute("SELECT username, role FROM users WHERE id = ?", (user_id,)).fetchone()
         if not row or row[1] == "system":
             abort(404)
@@ -201,7 +202,7 @@ def admin_set_role(user_id):
     if role not in ROLES:
         flash("ERROR: INVALID ROLE")
         return redirect(url_for("core.admin_users"))
-    with sqlite3.connect(DB) as conn:
+    with get_db() as conn:
         row = conn.execute("SELECT username, role FROM users WHERE id = ?", (user_id,)).fetchone()
         if not row or row[1] == "system":
             abort(404)
