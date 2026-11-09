@@ -22,7 +22,11 @@ logger.addHandler(file_handler)
 logger.info("StashGrid app started with Spatial Architecture")
 
 SECRET_KEY = os.environ.get("STASHGRID_SECRET_KEY", "stashgrid-dev-secret-change-in-prod-!")
-DB = "inventory.db"
+# Absolute path (SG-07). Defaults to the repo root, which is where the old
+# relative "inventory.db" resolved because the service runs from there.
+DB = os.environ.get("STASHGRID_DB_PATH") or os.path.join(BASE_DIR, "inventory.db")
+# Automatic copies taken before schema migrations run (see migrations.py).
+BACKUP_DIR = os.environ.get("STASHGRID_BACKUP_DIR") or os.path.join(BASE_DIR, "backups")
 
 # Shared key that lets a headless client (the hardware scanner, see SG-10) call
 # /api/scan without a browser session. Sent as the X-StashGrid-Key header.
