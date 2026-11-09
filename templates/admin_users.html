@@ -1,0 +1,134 @@
+{% extends 'login.html' %}
+
+{% block title %}StashGrid // Operators{% endblock %}
+
+{% block extra_style %}
+        body { overflow: auto; align-items: flex-start; padding: 24px 0; }
+        .gateway-panel { max-width: 640px; }
+
+        .user-list { list-style: none; margin-bottom: 24px; }
+
+        .user-row {
+            border: 1px solid var(--border);
+            background: var(--bg2);
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+
+        .user-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .user-name { color: var(--cyan); font-size: 14px; }
+
+        .badge {
+            font-size: 9px;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border: 1px solid var(--border);
+            color: var(--dim);
+        }
+
+        .badge.admin { border-color: var(--magenta); color: var(--magenta); }
+        .badge.pending { border-color: var(--yellow); color: var(--yellow); }
+
+        .user-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .user-actions form { display: flex; gap: 6px; flex: 1 1 240px; }
+        .user-actions .field-input { padding: 6px 10px; font-size: 12px; }
+
+        select.field-input { appearance: none; cursor: pointer; }
+
+        .btn-small {
+            padding: 6px 10px;
+            background: transparent;
+            border: 1px solid var(--cyan);
+            color: var(--cyan);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 9px;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .btn-small:hover { background: rgba(0, 245, 255, .08); }
+
+        .sub-heading {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            letter-spacing: .2em;
+            color: var(--dim);
+            text-transform: uppercase;
+            margin: 8px 0 12px;
+        }
+
+        .two-col { display: flex; gap: 10px; flex-wrap: wrap; }
+        .two-col .field-group { flex: 1 1 200px; }
+{% endblock %}
+
+{% block section_tag %}Operator Management{% endblock %}
+
+{% block body %}
+<ul class="user-list">
+    {% for user_id, username, role, must_change in users %}
+    <li class="user-row">
+        <div class="user-head">
+            <span class="user-name">{{ username }}</span>
+            <span class="badge {{ 'admin' if role == 'admin' }}">{{ role }}</span>
+            {% if must_change %}<span class="badge pending">password change pending</span>{% endif %}
+            {% if user_id == session.get('user_id') %}<span class="badge">you</span>{% endif %}
+        </div>
+        <div class="user-actions">
+            <form method="post" action="{{ url_for('admin_reset_password', user_id=user_id) }}" autocomplete="off">
+                <input class="field-input" type="password" name="password" placeholder="temporary password"
+                    autocomplete="new-password" minlength="{{ min_len }}" required
+                    aria-label="Temporary password for {{ username }}">
+                <button class="btn-small" type="submit">Reset</button>
+            </form>
+            <form method="post" action="{{ url_for('admin_set_role', user_id=user_id) }}">
+                <select class="field-input" name="role" aria-label="Role for {{ username }}">
+                    {% for r in roles %}
+                    <option value="{{ r }}" {{ 'selected' if r == role }}>{{ r }}</option>
+                    {% endfor %}
+                </select>
+                <button class="btn-small" type="submit">Set Role</button>
+            </form>
+        </div>
+    </li>
+    {% endfor %}
+</ul>
+
+<div class="sub-heading">Add Operator</div>
+<form method="post" action="{{ url_for('admin_create_user') }}" autocomplete="off">
+    <div class="two-col">
+        <div class="field-group">
+            <label class="field-label" for="new_username">Username</label>
+            <input id="new_username" class="field-input" type="text" name="username" pattern="[A-Za-z0-9_.\-]{3,32}"
+                autocomplete="off" required>
+        </div>
+        <div class="field-group">
+            <label class="field-label" for="new_role">Role</label>
+            <select id="new_role" class="field-input" name="role">
+                {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div class="field-group">
+        <label class="field-label" for="new_user_password">Temporary Password (min {{ min_len }})</label>
+        <input id="new_user_password" class="field-input" type="password" name="password"
+            autocomplete="new-password" minlength="{{ min_len }}" required>
+    </div>
+    <button type="submit" class="btn-login">&#9654; Create Operator</button>
+</form>
+
+<div class="gateway-nav">
+    <a href="{{ url_for('index') }}">&#8592; Back to HUD</a> &nbsp;//&nbsp;
+    <a href="{{ url_for('change_password') }}">My Password</a> &nbsp;//&nbsp;
+    <a href="{{ url_for('logout') }}">Logout</a>
+</div>
+{% endblock %}

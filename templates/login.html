@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>StashGrid // Secure Gateway</title>
+    <title>{% block title %}StashGrid // Secure Gateway{% endblock %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap"
@@ -366,6 +366,32 @@
             line-height: 1.6;
             text-transform: uppercase;
         }
+
+        /* Success / info message (flash) */
+        .notice-block {
+            background: rgba(0, 245, 255, .05);
+            border: 1px solid rgba(0, 245, 255, .25);
+            border-left: 3px solid var(--cyan);
+            padding: 10px 14px;
+            margin-bottom: 18px;
+            font-size: 11px;
+            color: var(--cyan);
+            letter-spacing: .06em;
+        }
+
+        .gateway-nav {
+            margin-top: 18px;
+            font-size: 10px;
+            letter-spacing: .12em;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .gateway-nav a {
+            color: var(--cyan);
+            text-decoration: none;
+        }
+        {% block extra_style %}{% endblock %}
     </style>
 </head>
 
@@ -395,13 +421,23 @@
             </div>
         </div>
 
-        <div class="section-tag">Authentication Protocol v1.0</div>
+        <div class="section-tag">{% block section_tag %}Authentication Protocol v1.0{% endblock %}</div>
+
+        {% for message in get_flashed_messages() %}
+        {% if message.startswith('ERROR:') %}
+        <div class="error-block">&#9888; {{ message[6:] }}</div>
+        {% else %}
+        <div class="notice-block">&#10003; {{ message }}</div>
+        {% endif %}
+        {% endfor %}
 
         {% if error %}
         <div class="error-block">&#9888; {{ error }}</div>
         {% endif %}
 
-        <form method="post" action="/login" autocomplete="off">
+        {% block body %}
+        {# No action attribute: posts back to the current URL so ?next= survives. #}
+        <form method="post" autocomplete="off">
             <div class="field-group">
                 <label class="field-label" for="username">Operator ID</label>
                 <input id="username" class="field-input" type="text" name="username" placeholder="enter username..."
@@ -418,6 +454,7 @@
                 &#9654; Initiate Com-Link // Login
             </button>
         </form>
+        {% endblock %}
 
         <div class="gateway-footer">
             StashGrid Spatial Inventory System<br>

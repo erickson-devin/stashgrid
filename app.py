@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify, redirect, session, url_for, abort, g
+from flask import Flask, request, render_template, jsonify, redirect, session, url_for, abort, g, flash
 from functools import wraps
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
@@ -8,6 +8,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import re
 import secrets
 import time
 import threading
@@ -174,6 +175,19 @@ def init_db():
             conn.execute("ALTER TABLE inventory ADD COLUMN created_by INTEGER")
         except Exception:
             pass  # Column already exists
+        # ── Idempotent migrations: password-change flag + session version ─────
+        # must_change_password: user is sent to the change-password page until
+        #   they set a new one (seeded admin, new users, admin resets).
+        # session_version: bumped on password/role changes so existing session
+        #   cookies for that user stop working.
+        for ddl in (
+            "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                conn.execute(ddl)
+            except Exception:
+                pass  # Column already exists
         # ── Seed system & admin users if the table is brand new ───────────────
         user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if user_count == 0:
@@ -182,10 +196,11 @@ def init_db():
                 "INSERT INTO users (id, username, password_hash, role) VALUES (1, '__system__', '', 'system')"
             )
             conn.execute(
-                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+                "INSERT INTO users (username, password_hash, role, must_change_password) "
+                "VALUES (?, ?, 'admin', 1)",
                 ("admin", _ph.hash("admin"))
             )
-            logger.info("Auth: seeded __system__ (id=1) and default admin user")
+            logger.info("Auth: seeded __system__ (id=1) and default admin user (must change password)")
 
 
 # ── Auth helpers & decorators ────────────────────────────────────────────────
@@ -246,19 +261,106 @@ def _valid_scanner_key():
     )
 
 
+# While a password change is pending, only these endpoints are reachable.
+PASSWORD_CHANGE_ENDPOINTS = {"change_password", "logout", "static"}
+
+
+def _load_session_user():
+    """Validate the session against the users table. Clears the session if the
+    user is gone, can't log in, or their session_version moved on (password or
+    role changed). Refreshes the cached role so demotions apply immediately."""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    with sqlite3.connect(DB) as conn:
+        row = conn.execute(
+            "SELECT username, role, must_change_password, session_version "
+            "FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+    if not row or row[1] == "system" or row[3] != session.get("session_version", 0):
+        session.clear()
+        return None
+    session["username"] = row[0]
+    session["role"] = row[1]
+    session["must_change_password"] = bool(row[2])
+    return uid
+
+
 @app.before_request
 def _require_login():
-    """Allow-list auth: only PUBLIC_ENDPOINTS skip the session check (SG-02)."""
-    g.user_id = session.get("user_id")
+    """Allow-list auth: only PUBLIC_ENDPOINTS skip the session check (SG-02).
+    Users flagged must_change_password are held on the change page (SG-03)."""
     endpoint = request.endpoint
+    if endpoint == "static":
+        g.user_id = session.get("user_id")
+        return None
+    g.user_id = _load_session_user()
     if endpoint in PUBLIC_ENDPOINTS:
         return None
     if g.user_id:
+        if session.get("must_change_password") and endpoint not in PASSWORD_CHANGE_ENDPOINTS:
+            if _wants_json():
+                return jsonify({"error": "PASSWORD CHANGE REQUIRED"}), 403
+            return redirect(url_for("change_password"))
         return None
     if endpoint in SCANNER_KEY_ENDPOINTS and _valid_scanner_key():
         g.user_id = SYSTEM_USER_ID
         return None
     return _unauthenticated_response()
+
+
+# ── Password policy & login throttling (SG-03) ───────────────────────────────
+MIN_PASSWORD_LENGTH = 8
+WEAK_PASSWORDS = {"admin", "password", "password1", "12345678", "123456789", "stashgrid", "changeme"}
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+ROLES = ("user", "admin")
+
+
+def _password_problem(password, username):
+    """Return an error message if the password is unacceptable, else None."""
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"PASSWORD TOO SHORT // MINIMUM {MIN_PASSWORD_LENGTH} CHARACTERS"
+    if password.lower() in WEAK_PASSWORDS or password.lower() == (username or "").lower():
+        return "PASSWORD TOO WEAK // CHOOSE SOMETHING LESS GUESSABLE"
+    return None
+
+
+LOGIN_MAX_FAILURES = 5
+LOGIN_WINDOW_SECONDS = 300
+_login_failures = {}          # (ip, username) -> [timestamps]
+_login_failures_lock = threading.Lock()
+
+
+def _login_key(username):
+    return (request.remote_addr or "?", username.lower())
+
+
+def _login_retry_after(username):
+    """Seconds until another attempt is allowed, or 0 if not throttled."""
+    now = time.time()
+    key = _login_key(username)
+    with _login_failures_lock:
+        stamps = [t for t in _login_failures.get(key, []) if now - t < LOGIN_WINDOW_SECONDS]
+        if stamps:
+            _login_failures[key] = stamps
+        else:
+            _login_failures.pop(key, None)
+        if len(stamps) >= LOGIN_MAX_FAILURES:
+            return int(LOGIN_WINDOW_SECONDS - (now - stamps[0])) + 1
+    return 0
+
+
+def _record_login_failure(username):
+    with _login_failures_lock:
+        _login_failures.setdefault(_login_key(username), []).append(time.time())
+        # Keep memory bounded if someone sprays usernames.
+        if len(_login_failures) > 5000:
+            _login_failures.clear()
+
+
+def _clear_login_failures(username):
+    with _login_failures_lock:
+        _login_failures.pop(_login_key(username), None)
 
 
 # ── Security headers (SG-05) ─────────────────────────────────────────────────
@@ -332,9 +434,17 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
+
+        retry_after = _login_retry_after(username)
+        if retry_after:
+            logger.warning("Auth: throttled login for '%s' from %s", username, request.remote_addr)
+            error = f"TOO MANY FAILED ATTEMPTS // TRY AGAIN IN {retry_after}s"
+            return render_template("login.html", error=error), 429
+
         with sqlite3.connect(DB) as conn:
             row = conn.execute(
-                "SELECT id, username, password_hash, role FROM users WHERE username = ?",
+                "SELECT id, username, password_hash, role, must_change_password, session_version "
+                "FROM users WHERE username = ?",
                 (username,)
             ).fetchone()
         # System user has no password and cannot log in
@@ -342,21 +452,185 @@ def login():
             try:
                 _ph.verify(row[2], password)
                 # ✅ Credentials valid — establish session
+                _clear_login_failures(username)
+                must_change = bool(row[4]) or _password_problem(password, row[1]) is not None
+                if must_change and not row[4]:
+                    # Existing installs still on admin/admin (or another weak
+                    # password) get flagged the first time they log in.
+                    with sqlite3.connect(DB) as conn:
+                        conn.execute("UPDATE users SET must_change_password = 1 WHERE id = ?", (row[0],))
                 session.clear()
                 session.permanent   = True
                 session["user_id"]  = row[0]
                 session["username"] = row[1]
                 session["role"]     = row[3]
+                session["session_version"] = row[5]
+                session["must_change_password"] = must_change
                 logger.info("Auth: user '%s' (role=%s) logged in", row[1], row[3])
                 log_audit(row[0], "login", "user", row[0])
+                if must_change:
+                    return redirect(url_for("change_password", next=request.args.get("next") or None))
                 return redirect(_safe_next(request.args.get("next")))
             except (VerifyMismatchError, InvalidHashError):
                 pass  # Fall through to generic error
         # Generic message — don't reveal whether the username exists
+        _record_login_failure(username)
         error = "AUTHENTICATION FAILED // INVALID CREDENTIALS"
         logger.warning("Auth: failed login attempt for username '%s'", username)
 
     return render_template("login.html", error=error)
+
+
+@app.route("/account/password", methods=["GET", "POST"])
+def change_password():
+    """Change your own password. Mandatory while must_change_password is set."""
+    forced = bool(session.get("must_change_password"))
+    error = None
+    if request.method == "POST":
+        current = request.form.get("current_password", "")
+        new = request.form.get("new_password", "")
+        confirm = request.form.get("confirm_password", "")
+        with sqlite3.connect(DB) as conn:
+            row = conn.execute(
+                "SELECT password_hash FROM users WHERE id = ?", (g.user_id,)
+            ).fetchone()
+        try:
+            _ph.verify(row[0], current)
+            current_ok = True
+        except (VerifyMismatchError, InvalidHashError, TypeError):
+            current_ok = False
+
+        if not current_ok:
+            error = "CURRENT PASSWORD INCORRECT"
+        elif new != confirm:
+            error = "NEW PASSWORDS DO NOT MATCH"
+        elif new == current:
+            error = "NEW PASSWORD MUST DIFFER FROM THE CURRENT ONE"
+        else:
+            error = _password_problem(new, session.get("username"))
+
+        if not error:
+            with sqlite3.connect(DB) as conn:
+                conn.execute(
+                    "UPDATE users SET password_hash = ?, must_change_password = 0, "
+                    "session_version = session_version + 1 WHERE id = ?",
+                    (_ph.hash(new), g.user_id)
+                )
+                version = conn.execute(
+                    "SELECT session_version FROM users WHERE id = ?", (g.user_id,)
+                ).fetchone()[0]
+            # Keep this session valid; every other session for the user is cut off.
+            session["session_version"] = version
+            session["must_change_password"] = False
+            log_audit(g.user_id, "change_password", "user", g.user_id)
+            logger.info("Auth: user '%s' changed their password", session.get("username"))
+            flash("PASSWORD UPDATED")
+            return redirect(_safe_next(request.args.get("next")))
+
+    return render_template("change_password.html", error=error, forced=forced)
+
+
+# ── User management (admin) ──────────────────────────────────────────────────
+
+def _admin_count(conn):
+    return conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
+
+
+@app.route("/admin/users")
+@admin_required
+def admin_users():
+    with sqlite3.connect(DB) as conn:
+        users = conn.execute(
+            "SELECT id, username, role, must_change_password FROM users "
+            "WHERE role != 'system' ORDER BY username COLLATE NOCASE"
+        ).fetchall()
+    return render_template("admin_users.html", users=users, roles=ROLES,
+                           min_len=MIN_PASSWORD_LENGTH)
+
+
+@app.route("/admin/users/create", methods=["POST"])
+@admin_required
+def admin_create_user():
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    role = request.form.get("role", "user")
+    if not USERNAME_RE.match(username) or username.startswith("__"):
+        flash("ERROR: USERNAME MUST BE 3-32 CHARACTERS: LETTERS, NUMBERS, . _ -")
+    elif role not in ROLES:
+        flash("ERROR: INVALID ROLE")
+    elif (problem := _password_problem(password, username)):
+        flash("ERROR: " + problem)
+    else:
+        try:
+            with sqlite3.connect(DB) as conn:
+                cur = conn.execute(
+                    "INSERT INTO users (username, password_hash, role, must_change_password) "
+                    "VALUES (?, ?, ?, 1)",
+                    (username, _ph.hash(password), role)
+                )
+                new_id = cur.lastrowid
+            log_audit(g.user_id, "create_user", "user", new_id)
+            logger.info("Auth: admin '%s' created user '%s' (%s)", session.get("username"), username, role)
+            flash(f"USER {username} CREATED // THEY MUST CHANGE THE PASSWORD AT FIRST LOGIN")
+        except sqlite3.IntegrityError:
+            flash("ERROR: USERNAME ALREADY EXISTS")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/reset-password", methods=["POST"])
+@admin_required
+def admin_reset_password(user_id):
+    password = request.form.get("password", "")
+    with sqlite3.connect(DB) as conn:
+        row = conn.execute("SELECT username, role FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row or row[1] == "system":
+            abort(404)
+        problem = _password_problem(password, row[0])
+        if problem:
+            flash("ERROR: " + problem)
+            return redirect(url_for("admin_users"))
+        conn.execute(
+            "UPDATE users SET password_hash = ?, must_change_password = 1, "
+            "session_version = session_version + 1 WHERE id = ?",
+            (_ph.hash(password), user_id)
+        )
+    log_audit(g.user_id, "reset_password", "user", user_id)
+    logger.info("Auth: admin '%s' reset password for '%s'", session.get("username"), row[0])
+    if user_id == g.user_id:
+        # Their own session was just invalidated; send them back through login.
+        session.clear()
+        return redirect(url_for("login"))
+    flash(f"PASSWORD RESET FOR {row[0]} // THEY MUST CHANGE IT AT NEXT LOGIN")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/role", methods=["POST"])
+@admin_required
+def admin_set_role(user_id):
+    role = request.form.get("role", "")
+    if role not in ROLES:
+        flash("ERROR: INVALID ROLE")
+        return redirect(url_for("admin_users"))
+    with sqlite3.connect(DB) as conn:
+        row = conn.execute("SELECT username, role FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row or row[1] == "system":
+            abort(404)
+        if row[1] == role:
+            return redirect(url_for("admin_users"))
+        if row[1] == "admin" and _admin_count(conn) <= 1:
+            flash("ERROR: CANNOT REMOVE THE LAST ADMIN")
+            return redirect(url_for("admin_users"))
+        conn.execute(
+            "UPDATE users SET role = ?, session_version = session_version + 1 WHERE id = ?",
+            (role, user_id)
+        )
+    log_audit(g.user_id, f"set_role_{role}", "user", user_id)
+    logger.info("Auth: admin '%s' set role of '%s' to %s", session.get("username"), row[0], role)
+    if user_id == g.user_id:
+        session.clear()
+        return redirect(url_for("login"))
+    flash(f"{row[0]} IS NOW {role.upper()}")
+    return redirect(url_for("admin_users"))
 
 
 @app.route("/logout")
