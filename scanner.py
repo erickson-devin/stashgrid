@@ -112,7 +112,7 @@ def remove_scan(item_barcode, room_id, shelf_id):
 
     with sqlite3.connect(DB) as conn:
         existing = conn.execute("""
-            SELECT id, quantity, name, low_stock_threshold, preferred_store FROM inventory
+            SELECT id, quantity, name, low_stock_threshold, preferred_store, household_id FROM inventory
             WHERE barcode = ? AND room_id = ? AND shelf_id = ? AND is_active = 1
         """, (item_barcode, room_id, shelf_id)).fetchone()
 
@@ -120,7 +120,7 @@ def remove_scan(item_barcode, room_id, shelf_id):
             print(f"[!] Warning: Barcode {item_barcode} not found on this shelf. Cannot remove.")
             return
 
-        item_id, quantity, item_name, threshold, preferred_store = existing
+        item_id, quantity, item_name, threshold, preferred_store, household_id = existing
 
         if quantity > 1:
             conn.execute("""
@@ -147,12 +147,13 @@ def remove_scan(item_barcode, room_id, shelf_id):
         # Auto-add to shopping list if stock drops below threshold
         if threshold and threshold > 0 and new_qty < threshold:
             _auto_add_shopping_list(
-                conn, item_barcode, item_name or "[ Unknown Item ]",
+                conn, household_id, item_barcode, item_name or "[ Unknown Item ]",
                 preferred_store=preferred_store or "Costco"
             )
 
-def _auto_add_shopping_list(conn, barcode, name, preferred_store="Costco"):
+def _auto_add_shopping_list(conn, household_id, barcode, name, preferred_store="Costco"):
     """Auto-insert a low-stock item into the best-matching shopping list (scanner context).
+    Only lists of the item's own household are considered (SG-32).
     Resolution order:
       1. A list whose store_name matches preferred_store (case-insensitive)
       2. The list flagged is_default = 1
@@ -164,8 +165,8 @@ def _auto_add_shopping_list(conn, barcode, name, preferred_store="Costco"):
     # 1. Match by preferred store name
     if preferred_store:
         match = conn.execute(
-            "SELECT id FROM shopping_lists WHERE LOWER(store_name) = LOWER(?) LIMIT 1",
-            (preferred_store,)
+            "SELECT id FROM shopping_lists WHERE household_id = ? AND LOWER(store_name) = LOWER(?) LIMIT 1",
+            (household_id, preferred_store)
         ).fetchone()
         if match:
             list_id = match[0]
@@ -173,7 +174,8 @@ def _auto_add_shopping_list(conn, barcode, name, preferred_store="Costco"):
     # 2. Fall back to default list
     if list_id is None:
         default_list = conn.execute(
-            "SELECT id FROM shopping_lists WHERE is_default = 1 LIMIT 1"
+            "SELECT id FROM shopping_lists WHERE household_id = ? AND is_default = 1 LIMIT 1",
+            (household_id,)
         ).fetchone()
         if default_list:
             list_id = default_list[0]
@@ -181,8 +183,8 @@ def _auto_add_shopping_list(conn, barcode, name, preferred_store="Costco"):
     # 3. No lists exist — create one
     if list_id is None:
         cursor = conn.execute(
-            "INSERT INTO shopping_lists (name, store_name, is_default) VALUES (?, ?, 1)",
-            (preferred_store or "Shopping List", preferred_store or "")
+            "INSERT INTO shopping_lists (name, store_name, is_default, household_id) VALUES (?, ?, 1, ?)",
+            (preferred_store or "Shopping List", preferred_store or "", household_id)
         )
         list_id = cursor.lastrowid
 

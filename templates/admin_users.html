@@ -79,7 +79,7 @@
     <li class="user-row">
         <div class="user-head">
             <span class="user-name">{{ username }}</span>
-            <span class="badge {{ 'admin' if role == 'admin' }}">{{ role }}</span>
+            <span class="badge {{ 'admin' if role in ('owner', 'admin') }}">{{ role }}</span>
             {% if must_change %}<span class="badge pending">password change pending</span>{% endif %}
             {% if user_id == session.get('user_id') %}<span class="badge">you</span>{% endif %}
         </div>
@@ -117,7 +117,7 @@
         <div class="field-group">
             <label class="field-label" for="new_role">Role</label>
             <select id="new_role" class="field-input" name="role">
-                {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+                {% for r in roles %}<option value="{{ r }}" {{ "selected" if r == "member" }}>{{ r }}</option>{% endfor %}
             </select>
         </div>
     </div>

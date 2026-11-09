@@ -1071,9 +1071,9 @@
             </div>
             {% if session.get('user_id') %}
             <div class="sys-tag" style="margin-left:auto; text-align:right;">
-                OPERATOR: {{ session.get('username') }} //
+                OPERATOR: {{ session.get('username') }}{% if session.get('household_name') %} @ {{ session.get('household_name') }}{% endif %} //
                 <a href="{{ url_for('core.change_password') }}" style="color:var(--cyan);">PASSWORD</a> //
-                {% if session.get('role') == 'admin' %}
+                {% if session.get('role') in ('owner', 'admin') %}
                 <a href="{{ url_for('core.admin_users') }}" style="color:var(--cyan);">USERS</a> //
                 {% endif %}
                 <a href="{{ url_for('core.logout') }}" style="color:var(--cyan);">LOGOUT</a>
