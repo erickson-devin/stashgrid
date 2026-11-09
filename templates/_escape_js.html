@@ -1,3 +1,7 @@
+{#- Shared HTML escaping, inlined (not a /static file) so the public
+    shopping page works through the Cloudflare tunnel, which only forwards
+    /shop/<token> and /api/public/* paths. -#}
+<script>
 // Shared HTML escaping for any value interpolated into innerHTML / template
 // strings. Item names can come from the public shopping page or from
 // Open Food Facts / UPCitemdb (editable by anyone), so treat them as untrusted.
@@ -13,3 +17,4 @@
     }
     window.escHtml = escHtml;
 })();
+</script>

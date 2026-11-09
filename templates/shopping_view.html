@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>StashGrid // Shopping List</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <script src="{{ url_for('static', filename='js/escape.js') }}"></script>
+    {% include '_escape_js.html' %}
     <meta name="theme-color" content="#05070f">
     <meta name="description" content="StashGrid live shopping list — check off items as you shop.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1128,7 +1128,7 @@
 
         // ── Utilities ──────────────────────────────────────────────────────────
 
-        // escHtml() comes from static/js/escape.js
+        // escHtml() comes from templates/_escape_js.html
 
         let _toastTimer = null;
         function showToast(msg, isError = false) {
