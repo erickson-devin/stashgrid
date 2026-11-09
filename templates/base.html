@@ -1072,11 +1072,11 @@
             {% if session.get('user_id') %}
             <div class="sys-tag" style="margin-left:auto; text-align:right;">
                 OPERATOR: {{ session.get('username') }} //
-                <a href="{{ url_for('change_password') }}" style="color:var(--cyan);">PASSWORD</a> //
+                <a href="{{ url_for('core.change_password') }}" style="color:var(--cyan);">PASSWORD</a> //
                 {% if session.get('role') == 'admin' %}
-                <a href="{{ url_for('admin_users') }}" style="color:var(--cyan);">USERS</a> //
+                <a href="{{ url_for('core.admin_users') }}" style="color:var(--cyan);">USERS</a> //
                 {% endif %}
-                <a href="{{ url_for('logout') }}" style="color:var(--cyan);">LOGOUT</a>
+                <a href="{{ url_for('core.logout') }}" style="color:var(--cyan);">LOGOUT</a>
                 {% for message in get_flashed_messages() %}
                 <div style="color:{{ 'var(--magenta)' if message.startswith('ERROR:') else '#00ff88' }};">&#10003; {{ message }}</div>
                 {% endfor %}
