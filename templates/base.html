@@ -1067,12 +1067,30 @@
                 <h1>StashGrid // Spatial HUD</h1>
                 <div class="sys-tag">COM-LINK ACTIVE // NODE DELTA</div>
             </div>
+            {% if session.get('user_id') %}
+            <div class="sys-tag" style="margin-left:auto; text-align:right;">
+                OPERATOR: {{ session.get('username') }} //
+                <a href="{{ url_for('logout') }}" style="color:var(--cyan);">LOGOUT</a>
+            </div>
+            {% endif %}
         </header>
         <button id="theme-toggle" onclick="toggleTheme()">☀</button>
         {% block content %}{% endblock %}
     </div>
 
     <script>
+        // Session expired → any API call gets 401; send the user back to login.
+        (function () {
+            const origFetch = window.fetch;
+            window.fetch = async function (...args) {
+                const resp = await origFetch.apply(this, args);
+                if (resp.status === 401) {
+                    window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+                }
+                return resp;
+            };
+        })();
+
         let currentHash = null;
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room_id') || '';
