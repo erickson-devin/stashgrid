@@ -1,0 +1,25 @@
+{% extends 'login.html' %}
+
+{% block title %}StashGrid // {{ title }}{% endblock %}
+
+{% block section_tag %}{{ title }}{% endblock %}
+
+{% block body %}
+<div class="notice-block">{{ message }}</div>
+
+{% if show_resend %}
+<form method="post" action="{{ url_for('core.resend_verification') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field-group">
+        <label class="field-label" for="resend_email">Resend confirmation to</label>
+        <input id="resend_email" class="field-input" type="email" name="email" autocomplete="email"
+            placeholder="you@example.com" required>
+    </div>
+    <button type="submit" class="btn-login">&#9654; Send a new link</button>
+</form>
+{% endif %}
+
+<div class="gateway-nav">
+    {% if link %}<a href="{{ link }}">{{ link_text }}</a>{% else %}<a href="{{ url_for('core.login') }}">Back to login</a>{% endif %}
+</div>
+{% endblock %}

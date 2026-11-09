@@ -1,0 +1,84 @@
+{% extends 'login.html' %}
+
+{% block title %}StashGrid // Account{% endblock %}
+
+{% block extra_style %}
+        body { overflow: auto; align-items: flex-start; padding: 24px 0; }
+        .gateway-panel { max-width: 520px; }
+        .sub-heading {
+            font-family: 'Orbitron', sans-serif; font-size: 10px; letter-spacing: .2em;
+            color: var(--dim); text-transform: uppercase; margin: 22px 0 10px;
+        }
+        .kv { font-size: 12px; margin-bottom: 6px; }
+        .kv span { color: var(--dim); }
+        .hh-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+        .hh-row .hh-name { flex: 1; color: var(--cyan); }
+        .badge {
+            font-size: 9px; letter-spacing: .15em; text-transform: uppercase; padding: 2px 6px;
+            border: 1px solid var(--border); color: var(--dim);
+        }
+        .btn-small {
+            padding: 6px 10px; background: transparent; border: 1px solid var(--cyan); color: var(--cyan);
+            font-family: 'Orbitron', sans-serif; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; cursor: pointer;
+        }
+{% endblock %}
+
+{% block section_tag %}Account{% endblock %}
+
+{% block body %}
+{% set username, email, verified, display_name = user[0], user[1], user[2], user[3] %}
+<div class="kv"><span>Username:</span> {{ username }}</div>
+<div class="kv"><span>Email:</span>
+    {% if email and verified %}{{ email }}{% elif email %}{{ email }} (not confirmed){% else %}none — add one so you can reset your password{% endif %}
+</div>
+
+<div class="sub-heading">Your Name</div>
+<form method="post" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="name">
+    <div class="field-group">
+        <input class="field-input" type="text" name="display_name" maxlength="60" value="{{ display_name or '' }}"
+            aria-label="Display name" placeholder="{{ username }}">
+    </div>
+    <button type="submit" class="btn-login">&#9654; Save Name</button>
+</form>
+
+<div class="sub-heading">{{ 'Change' if email else 'Add' }} Email</div>
+<form method="post" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="email">
+    <div class="field-group">
+        <label class="field-label" for="email">New Email</label>
+        <input id="email" class="field-input" type="email" name="email" maxlength="254" autocomplete="email" required>
+    </div>
+    <div class="field-group">
+        <label class="field-label" for="current_password">Current Password</label>
+        <input id="current_password" class="field-input" type="password" name="current_password"
+            autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn-login">&#9654; Send Confirmation Link</button>
+</form>
+
+<div class="sub-heading">Households</div>
+{% for hid, name, role in households %}
+<div class="hh-row">
+    <span class="hh-name">{{ name }}</span>
+    <span class="badge">{{ role }}</span>
+    {% if hid == current_household %}
+    <span class="badge">current</span>
+    {% else %}
+    <form method="post" action="{{ url_for('core.switch_household') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="household_id" value="{{ hid }}">
+        <button type="submit" class="btn-small">Switch</button>
+    </form>
+    {% endif %}
+</div>
+{% endfor %}
+
+<div class="gateway-nav">
+    <a href="{{ url_for('inventory.index') }}">&#8592; Back to HUD</a> &nbsp;//&nbsp;
+    <a href="{{ url_for('core.change_password') }}">Change Password</a> &nbsp;//&nbsp;
+    <a href="{{ url_for('core.logout') }}">Logout</a>
+</div>
+{% endblock %}

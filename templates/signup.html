@@ -1,0 +1,41 @@
+{% extends 'login.html' %}
+
+{% block title %}StashGrid // Create Account{% endblock %}
+
+{% block section_tag %}Create Account{% endblock %}
+
+{% block body %}
+<form method="post" autocomplete="on">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field-group">
+        <label class="field-label" for="display_name">Your Name</label>
+        <input id="display_name" class="field-input" type="text" name="display_name" maxlength="60"
+            value="{{ form.get('display_name', '') }}" autocomplete="name" required autofocus>
+    </div>
+    <div class="field-group">
+        <label class="field-label" for="household_name">Household Name (optional)</label>
+        <input id="household_name" class="field-input" type="text" name="household_name" maxlength="60"
+            value="{{ form.get('household_name', '') }}" placeholder="e.g. The Smith House" autocomplete="off">
+    </div>
+    <div class="field-group">
+        <label class="field-label" for="email">Email</label>
+        <input id="email" class="field-input" type="email" name="email" maxlength="254"
+            value="{{ form.get('email', '') }}" autocomplete="email" required>
+    </div>
+    <div class="field-group">
+        <label class="field-label" for="password">Password (min {{ min_len }})</label>
+        <input id="password" class="field-input" type="password" name="password" minlength="{{ min_len }}"
+            autocomplete="new-password" required>
+    </div>
+    <div class="field-group">
+        <label class="field-label" for="confirm_password">Confirm Password</label>
+        <input id="confirm_password" class="field-input" type="password" name="confirm_password"
+            minlength="{{ min_len }}" autocomplete="new-password" required>
+    </div>
+    <button type="submit" class="btn-login">&#9654; Create Account</button>
+</form>
+
+<div class="gateway-nav">
+    Already have an account? <a href="{{ url_for('core.login') }}">Log in</a>
+</div>
+{% endblock %}

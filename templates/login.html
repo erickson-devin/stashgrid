@@ -440,8 +440,8 @@
         <form method="post" autocomplete="off">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="field-group">
-                <label class="field-label" for="username">Operator ID</label>
-                <input id="username" class="field-input" type="text" name="username" placeholder="enter username..."
+                <label class="field-label" for="username">Email or Username</label>
+                <input id="username" class="field-input" type="text" name="username" placeholder="enter email or username..."
                     autocomplete="username" required autofocus>
             </div>
 
@@ -455,6 +455,19 @@
                 &#9654; Initiate Com-Link // Login
             </button>
         </form>
+
+        {% if unverified_email %}
+        <form method="post" action="{{ url_for('core.resend_verification') }}" style="margin-top:12px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="email" value="{{ unverified_email }}">
+            <button type="submit" class="btn-login">&#9654; Resend Confirmation Email</button>
+        </form>
+        {% endif %}
+
+        <div class="gateway-nav">
+            <a href="{{ url_for('core.forgot_password') }}">Forgot password?</a>
+            {% if signup_enabled %} &nbsp;//&nbsp; <a href="{{ url_for('core.signup') }}">Create an account</a>{% endif %}
+        </div>
         {% endblock %}
 
         <div class="gateway-footer">
