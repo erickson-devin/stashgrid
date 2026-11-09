@@ -555,7 +555,7 @@
             return;
         }
         el.innerHTML = lists.map(l =>
-            `<button class="sl-tab ${l.id === _activeListId ? 'active' : ''}" onclick="window.switchList(${l.id})">${l.name}${l.is_default ? ' <span style="color:#00ff88;font-size:8px;">&#9670;</span>' : ''}</button>`
+            `<button class="sl-tab ${l.id === _activeListId ? 'active' : ''}" onclick="window.switchList(${Number(l.id)})">${escHtml(l.name)}${l.is_default ? ' <span style="color:#00ff88;font-size:8px;">&#9670;</span>' : ''}</button>`
         ).join('');
     }
 
@@ -573,24 +573,24 @@
         }
 
         if (restockBtn) restockBtn.style.display = 'block';
-        const esc = s => s ? s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") : '';
+        const listId = Number(activeList.id);
 
         header.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border);">
-                ${activeList.store_name ? `<span style="font-size:10px;color:var(--dim);">&#128204; ${activeList.store_name}</span><span style="color:var(--border);">|</span>` : ''}
+                ${activeList.store_name ? `<span style="font-size:10px;color:var(--dim);">&#128204; ${escHtml(activeList.store_name)}</span><span style="color:var(--border);">|</span>` : ''}
                 ${activeList.is_default
                     ? '<span style="font-size:9px;color:#00ff88;letter-spacing:.1em;">&#9670; DEFAULT</span>'
-                    : `<button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;" onclick="window.setDefaultList(${activeList.id})">SET DEFAULT</button>`
+                    : `<button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;" onclick="window.setDefaultList(${listId})">SET DEFAULT</button>`
                 }
-                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--cyan);color:var(--cyan);" onclick="window.showRenameForm(${activeList.id},'${esc(activeList.name)}','${esc(activeList.store_name)}')">&#9998; RENAME</button>
-                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--magenta);color:var(--magenta);" onclick="window.deleteList(${activeList.id})">&#10005; DELETE LIST</button>
+                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--cyan);color:var(--cyan);" onclick="window.showRenameForm(${listId})">&#9998; RENAME</button>
+                <button class="btn-action btn-secondary" style="font-size:9px;padding:2px 6px;border-color:var(--magenta);color:var(--magenta);" onclick="window.deleteList(${listId})">&#10005; DELETE LIST</button>
             </div>
             <div id="sl-rename-form" style="display:none;margin-bottom:8px;padding:8px;background:rgba(0,245,255,0.03);border:1px dashed var(--border);">
                 <div style="font-size:9px;color:var(--dim);letter-spacing:.1em;margin-bottom:6px;font-family:'Orbitron',sans-serif;">RENAME LIST</div>
                 <input type="text" id="sl-rename-name" placeholder="List Name *" style="width:100%;margin-bottom:4px;font-size:11px;">
                 <input type="text" id="sl-rename-store" placeholder="Store (optional)" style="width:100%;margin-bottom:6px;font-size:11px;">
                 <div style="display:flex;gap:6px;">
-                    <button class="btn-action" style="font-size:10px;padding:3px 10px;" onclick="window.submitRename(${activeList.id})">SAVE</button>
+                    <button class="btn-action" style="font-size:10px;padding:3px 10px;" onclick="window.submitRename(${listId})">SAVE</button>
                     <button class="btn-action btn-secondary" style="font-size:10px;padding:3px 10px;" onclick="document.getElementById('sl-rename-form').style.display='none'">CANCEL</button>
                 </div>
             </div>`;
@@ -601,16 +601,16 @@
         }
 
         container.innerHTML = `<ul class="sl-item-list">${activeList.items.map(item =>
-            `<li class="sl-item${item.is_completed ? ' completed' : ''}" data-sl-item-id="${item.id}">
+            `<li class="sl-item${item.is_completed ? ' completed' : ''}" data-sl-item-id="${Number(item.id)}">
                 <label class="sl-checkbox-label" title="${item.is_completed ? 'Mark incomplete' : 'Mark complete'}">
-                    <input type="checkbox" class="sl-checkbox" ${item.is_completed ? 'checked' : ''} onchange="window.toggleComplete(${item.id})">
+                    <input type="checkbox" class="sl-checkbox" ${item.is_completed ? 'checked' : ''} onchange="window.toggleComplete(${Number(item.id)})">
                     <span class="sl-checkmark"></span>
                 </label>
                 <div class="sl-item-info">
-                    <span class="sl-item-name">${item.name || item.barcode}</span>
-                    <span class="sl-item-barcode">${item.barcode}</span>
+                    <span class="sl-item-name">${escHtml(item.name || item.barcode)}</span>
+                    <span class="sl-item-barcode">${escHtml(item.barcode)}</span>
                 </div>
-                <span class="sl-item-qty">&#215;${item.requested_qty}</span>
+                <span class="sl-item-qty">&#215;${Number(item.requested_qty)}</span>
             </li>`
         ).join('')}</ul>`;
     }
@@ -665,12 +665,14 @@
         await loadShoppingLists();
     };
 
-    window.showRenameForm = function(listId, currentName, currentStore) {
+    window.showRenameForm = function(listId) {
         const form = document.getElementById('sl-rename-form');
         if (!form) return;
         if (form.style.display !== 'none') { form.style.display = 'none'; return; }
-        document.getElementById('sl-rename-name').value  = currentName  || '';
-        document.getElementById('sl-rename-store').value = currentStore || '';
+        // Read names from loaded data rather than embedding them in onclick strings.
+        const list = _slData && _slData.lists.find(l => l.id === listId);
+        document.getElementById('sl-rename-name').value  = (list && list.name)       || '';
+        document.getElementById('sl-rename-store').value = (list && list.store_name) || '';
         form.style.display = 'block';
     };
 

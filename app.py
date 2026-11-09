@@ -261,6 +261,36 @@ def _require_login():
     return _unauthenticated_response()
 
 
+# ── Security headers (SG-05) ─────────────────────────────────────────────────
+# Report-only for now: templates still use inline <script> and onclick=
+# handlers, so an enforced policy would need 'unsafe-inline' anyway. Violations
+# show up in the browser console. Switch to enforcing once inline JS is moved
+# into static files (SG-11).
+CSP_POLICY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "media-src 'self' blob:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("Content-Security-Policy-Report-Only", CSP_POLICY)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    # Keeps the /shop/<token> URL out of Referer headers sent to other sites.
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    return resp
+
+
 def login_required(f):
     """Decorator: redirect to /login if there is no active session.
     Redundant with the before_request allow-list; kept for explicitness."""
