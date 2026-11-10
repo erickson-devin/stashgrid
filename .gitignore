@@ -14,4 +14,6 @@ logs/
 static/photos/
 
 # Local / experimental files — not for the public repo
-local/
+local/
+# Test runs
+.pytest_cache/
