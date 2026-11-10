@@ -1,0 +1,263 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<!-- html5-qrcode: live camera scanning on iOS Safari + Android Chrome -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<div class="status-bar">
+    <div class="status-dot"></div>
+    <span id="sync-text">Live sync active</span>
+    <span>|</span>
+    <span>Access: <strong>Local / Open</strong></span>
+    <div style="display:flex; gap:12px; margin-left:auto; align-items:center;">
+        <button class="btn-action" style="padding:6px 16px; border-radius:20px; font-size:13px;"
+            onclick="openScanModal()">Scan Book</button>
+        <button class="btn-secondary"
+            style="padding:6px 16px; border-radius:20px; font-size:13px; cursor:pointer;"
+            onclick="openStatsModal()">Library Stats</button>
+    </div>
+</div>
+
+
+<div class="search-section" style="margin-bottom:24px;">
+    <input type="text" id="search-box" style="width:100%; padding:12px 16px; font-size:15px; border-radius:24px;"
+        placeholder="Search books by title, author, ISBN, series, or genre..." value="{{ q }}"
+        oninput="syncState()">
+</div>
+
+<div id="canvas-injection-point">
+    {% include '_book_cards.html' %}
+</div>
+
+
+
+
+<!-- Camera Scan Modal -->
+<div id="scan-overlay" class="zoom-overlay" onclick="if(event.target === this) closeScanModal()">
+    <div class="zoom-content" style="max-width:500px;">
+        <div class="zoom-header">
+            <div class="zoom-title">Intake Scan</div>
+            <button class="close-zoom" onclick="closeScanModal()">×</button>
+        </div>
+
+
+        <div id="cam-viewfinder-wrap" style="width:100%; aspect-ratio:4/3; background:#000; border-radius:8px; overflow:hidden; position:relative; margin-bottom:20px; display:flex; align-items:center; justify-content:center;">
+            <div id="cam-idle-msg" style="color:#fff; text-align:center;">Camera Offline<br><span style="font-size:13px; opacity:0.7;">Tap Start Scan to activate</span></div>
+            <div id="cam-reader" style="position:absolute; inset:0;"></div>
+        </div>
+
+        <div id="scan-status" style="text-align:center; margin-bottom:20px; font-size:14px; font-weight:500; color:var(--primary);">
+            Ready — Tap Start Scan
+        </div>
+
+        <div id="scan-result" style="display:none; text-align:center; margin-bottom:20px; padding:16px; background:var(--bg2); border-radius:8px;">
+            <div style="color:var(--success); font-weight:600; margin-bottom:8px;">Book Logged</div>
+            <div id="scan-result-name" style="font-size:16px; font-weight:500; margin-bottom:12px;"></div>
+            <button class="btn-secondary" style="font-size:13px; padding:8px 16px; cursor:pointer;"
+                onclick="triggerScanPhoto()">Capture Custom Cover</button>
+        </div>
+
+        <div style="display:flex; gap:12px; justify-content:center;">
+            <button id="btn-start-scan" class="btn-action" style="padding:10px 24px; border-radius:24px;" onclick="startScan()">Start Scan</button>
+            <button id="btn-stop-scan" class="btn-secondary" style="display:none; padding:10px 24px; border-radius:24px; cursor:pointer;" onclick="stopScan()">Stop Camera</button>
+            <button id="btn-file-scan" class="btn-action" style="display:none; padding:10px 24px; border-radius:24px;" onclick="triggerBarcodeScan()">Upload Photo</button>
+        </div>
+
+        <input type="file" id="barcode-scan-file-input" accept="image/*" capture="environment" style="display:none;">
+        <input type="file" id="scan-photo-input" accept="image/*" capture="environment" style="display:none;">
+        <input type="file" id="item-photo-input" accept="image/*" capture="environment" style="display:none;">
+    </div>
+</div>
+
+<script>
+    let _qrScanner = null;
+    let _lastScannedBookId = null;
+
+    window.openScanModal = function() {
+        document.getElementById('scan-result').style.display = 'none';
+        document.getElementById('scan-status').textContent = 'Ready — Tap Start Scan';
+        document.getElementById('btn-start-scan').style.display = 'inline-block';
+        document.getElementById('btn-stop-scan').style.display = 'none';
+        document.getElementById('cam-idle-msg').style.display = 'block';
+        document.getElementById('scan-overlay').classList.add('active');
+    };
+
+    window.closeScanModal = async function() {
+        await _stopQr();
+        document.getElementById('scan-overlay').classList.remove('active');
+    };
+
+    window.startScan = async function() {
+        if (_qrScanner) return;
+        document.getElementById('cam-idle-msg').style.display = 'none';
+        _qrScanner = new Html5Qrcode('cam-reader');
+        try {
+            await _qrScanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 220, height: 180 } },
+                _onBarcode,
+                function() {} 
+            );
+            document.getElementById('btn-start-scan').style.display = 'none';
+            document.getElementById('btn-stop-scan').style.display = 'inline-block';
+            _setScanStatus('Scanning — Aim camera at ISBN barcode...');
+        } catch(err) {
+            _qrScanner = null;
+            document.getElementById('cam-reader').innerHTML = '';
+            document.getElementById('cam-idle-msg').style.display = 'block';
+            _activateFileFallback();
+        }
+    };
+
+    window.stopScan = async function() {
+        await _stopQr();
+        _setScanStatus('Scan stopped');
+    };
+
+    async function _stopQr() {
+        if (!_qrScanner) return;
+        try {
+            if (_qrScanner.isScanning) await _qrScanner.stop();
+            _qrScanner.clear();
+        } catch(e) {}
+        _qrScanner = null;
+        document.getElementById('cam-reader').innerHTML = '';
+        document.getElementById('btn-start-scan').style.display = 'inline-block';
+        document.getElementById('btn-stop-scan').style.display = 'none';
+        document.getElementById('cam-idle-msg').style.display = 'block';
+    }
+
+    function _setScanStatus(msg, isError=false) {
+        const el = document.getElementById('scan-status');
+        el.textContent = msg;
+        el.style.color = isError ? 'var(--danger)' : 'var(--primary)';
+    }
+
+    let _scanCooldown = false;
+    async function _onBarcode(decodedText) {
+        if (_scanCooldown) return;
+        _scanCooldown = true;
+
+        _setScanStatus('Processing ISBN: ' + decodedText + '...');
+
+        try {
+            const formData = new FormData();
+            formData.append('barcode', decodedText);
+
+            const resp = await fetch('/api/books/add', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!resp.ok) {
+                _setScanStatus('Server error scanning barcode.', true);
+            } else {
+                const data = await resp.json();
+                document.getElementById('scan-result-name').textContent = data.title;
+                document.getElementById('scan-result').style.display = 'block';
+                _setScanStatus('Success!');
+                _lastScannedBookId = data.id;
+            }
+        } catch (e) {
+            _setScanStatus('Network error connecting to server.', true);
+        }
+
+        setTimeout(() => _scanCooldown = false, 2500);
+    }
+
+    function _activateFileFallback() {
+        document.getElementById('btn-start-scan').style.display = 'none';
+        document.getElementById('btn-file-scan').style.display = 'inline-block';
+        _setScanStatus('Live camera requires HTTPS. Use photo upload instead.', true);
+    }
+
+    window.triggerBarcodeScan = function() {
+        document.getElementById('barcode-scan-file-input').click();
+    };
+
+    document.getElementById('barcode-scan-file-input').addEventListener('change', async (e) => {
+        if (e.target.files.length === 0) return;
+        _setScanStatus('Analyzing photo...');
+        if (!_qrScanner) {
+            _qrScanner = new Html5Qrcode('cam-reader');
+        }
+        try {
+            const decodedText = await _qrScanner.scanFile(e.target.files[0], true);
+            _onBarcode(decodedText);
+        } catch (err) {
+            _setScanStatus('No barcode found in image.', true);
+        }
+        e.target.value = '';
+    });
+
+    window.triggerScanPhoto = function() {
+        document.getElementById('scan-photo-input').click();
+    };
+
+    document.getElementById('scan-photo-input').addEventListener('change', async (e) => {
+        if (e.target.files.length === 0 || !_lastScannedBookId) return;
+        const file = e.target.files[0];
+        
+        const btn = document.querySelector('#scan-result button');
+        const origText = btn.textContent;
+        btn.textContent = 'Uploading...';
+        btn.disabled = true;
+
+        const formData = new FormData();
+        formData.append('photo', file);
+
+        try {
+            const resp = await fetch('/api/books/' + _lastScannedBookId + '/cover', {
+                method: 'POST',
+                body: formData
+            });
+            if (resp.ok) {
+                btn.textContent = 'Upload Complete ✓';
+                setTimeout(() => {
+                    btn.textContent = origText;
+                    btn.disabled = false;
+                }, 2000);
+            } else {
+                btn.textContent = 'Upload Failed!';
+                setTimeout(() => {
+                    btn.textContent = origText;
+                    btn.disabled = false;
+                }, 2000);
+            }
+        } catch (err) {
+            btn.textContent = 'Error!';
+            setTimeout(() => {
+                btn.textContent = origText;
+                btn.disabled = false;
+            }, 2000);
+        }
+        e.target.value = '';
+    });
+
+    // Custom Item Photo from UI Card
+    let _activeBookPhotoId = null;
+    window.triggerBookCover = function(bookId) {
+        _activeBookPhotoId = bookId;
+        document.getElementById('item-photo-input').click();
+    };
+
+    document.getElementById('item-photo-input').addEventListener('change', async (e) => {
+        if (e.target.files.length === 0 || !_activeBookPhotoId) return;
+        const file = e.target.files[0];
+        const formData = new FormData();
+        formData.append('photo', file);
+
+        try {
+            await fetch('/api/books/' + _activeBookPhotoId + '/cover', {
+                method: 'POST',
+                body: formData
+            });
+            // Force reload via sync State
+            currentHash = null;
+        } catch(e) {}
+        e.target.value = '';
+        _activeBookPhotoId = null;
+    });
+
+</script>
+{% endblock %}
