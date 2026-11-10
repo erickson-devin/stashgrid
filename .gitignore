@@ -18,4 +18,23 @@ logs/
 static/photos/
 
 # Local / experimental files — not for the public repo
-local/
+local/
+__pycache__/
+*.pyc
+inventory.db
+inventory.db-wal
+inventory.db-shm
+backups/
+# Runtime secrets / state — never commit (SG-01)
+shopping_token.txt
+scanner_state.json
+.env
+venv/
+logs/
+*.log
+static/photos/
+
+# Local / experimental files — not for the public repo
+local/
+# Test runs
+.pytest_cache/
