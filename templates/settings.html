@@ -1,0 +1,156 @@
+{% extends 'login.html' %}
+
+{% block title %}StashGrid // Settings{% endblock %}
+
+{% block extra_style %}
+        body { overflow: auto; align-items: flex-start; padding: 24px 0; }
+        .gateway-panel { max-width: 640px; }
+        .sub-heading {
+            font-family: 'Orbitron', sans-serif; font-size: 10px; letter-spacing: .2em;
+            color: var(--dim); text-transform: uppercase; margin: 24px 0 10px;
+        }
+        .hint { font-size: 11px; color: var(--dim); line-height: 1.5; margin-bottom: 12px; }
+        .row { border: 1px solid var(--border); background: var(--bg2); padding: 10px 12px; margin-bottom: 8px;
+               display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .row .name { color: var(--cyan); flex: 1 1 160px; overflow-wrap: anywhere; }
+        .meta { font-size: 10px; color: var(--dim); flex: 1 1 100%; }
+        .badge { font-size: 9px; letter-spacing: .15em; text-transform: uppercase; padding: 2px 6px;
+                 border: 1px solid var(--border); color: var(--dim); }
+        .badge.warn { border-color: var(--yellow); color: var(--yellow); }
+        .btn-small { padding: 6px 10px; background: transparent; border: 1px solid var(--magenta); color: var(--magenta);
+                     font-family: 'Orbitron', sans-serif; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; cursor: pointer; }
+        .secret { border: 1px solid var(--cyan); background: rgba(0,245,255,.05); padding: 12px; margin: 8px 0 16px; }
+        .secret code { display: block; color: var(--cyan); font-size: 12px; overflow-wrap: anywhere; margin: 8px 0; user-select: all; }
+        .secret button { padding: 6px 10px; background: transparent; border: 1px solid var(--cyan); color: var(--cyan);
+                         font-family: 'Orbitron', sans-serif; font-size: 9px; letter-spacing: .15em; cursor: pointer; }
+        #qr { margin-top: 10px; background: #fff; display: inline-block; padding: 8px; }
+        #qr:empty { display: none; }
+        .two-col { display: flex; gap: 10px; flex-wrap: wrap; }
+        .two-col .field-group { flex: 1 1 160px; }
+        select.field-input { appearance: none; cursor: pointer; }
+{% endblock %}
+
+{% block section_tag %}Household Settings{% endblock %}
+
+{% block body %}
+
+{# ── Share links ─────────────────────────────────────────────────────── #}
+<div class="sub-heading">Shopping Share Links</div>
+<div class="hint">Anyone with a link can see and tick off the lists it opens — no login. Revoke a link to stop it working.</div>
+
+{% if new_link %}
+<div class="secret" id="new-link">
+    New link — copy it now, it won't be shown again:
+    <code id="new-link-value">{{ new_link }}</code>
+    <button type="button" data-copy="new-link-value">Copy link</button>
+    <div id="qr" data-qr="{{ new_link }}"></div>
+    {% if not base_url_configured %}
+    <div class="hint" style="margin-top:8px;">This link uses the address you opened StashGrid with. To share it outside
+        your home network, set <code style="display:inline">STASHGRID_PUBLIC_BASE_URL</code> to your public address.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% for link_id, label, list_id, list_name, created_at, expires_at, last_used_at, expired in links %}
+<div class="row">
+    <span class="name">{{ label }}</span>
+    <span class="badge">{{ list_name if list_id else 'all lists' }}</span>
+    {% if expired %}<span class="badge warn">expired</span>{% elif expires_at %}<span class="badge">until {{ expires_at[:10] }}</span>{% endif %}
+    <form method="post" action="{{ url_for('core.revoke_link', link_id=link_id) }}"
+        onsubmit="return confirm('Revoke this link? Anyone using it loses access immediately.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn-small" type="submit">Revoke</button>
+    </form>
+    <div class="meta">created {{ created_at[:16] }} · last used {{ last_used_at[:16] if last_used_at else 'never' }}</div>
+</div>
+{% else %}
+<div class="hint">No share links yet.</div>
+{% endfor %}
+
+<form method="post" action="{{ url_for('core.create_link') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="two-col">
+        <div class="field-group">
+            <label class="field-label" for="link_label">Label</label>
+            <input id="link_label" class="field-input" type="text" name="label" maxlength="60" placeholder="e.g. Family group chat">
+        </div>
+        <div class="field-group">
+            <label class="field-label" for="link_scope">Opens</label>
+            <select id="link_scope" class="field-input" name="scope">
+                <option value="all">All lists</option>
+                {% for lid, lname in lists %}<option value="{{ lid }}">Only: {{ lname }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field-group">
+            <label class="field-label" for="link_expires">Expires</label>
+            <select id="link_expires" class="field-input" name="expires">
+                <option value="never">Never</option>
+                <option value="7">In 7 days</option>
+                <option value="30">In 30 days</option>
+                <option value="90">In 90 days</option>
+            </select>
+        </div>
+    </div>
+    <button type="submit" class="btn-login">&#9654; Create Share Link</button>
+</form>
+
+{# ── Scanner keys ────────────────────────────────────────────────────── #}
+<div class="sub-heading">Scanner Keys</div>
+<div class="hint">A key lets a barcode scanner or Pi hub add items to this household without logging in.
+    It's sent as the <code style="display:inline">X-StashGrid-Key</code> header.</div>
+
+{% if new_key %}
+<div class="secret">
+    New key — copy it now, it won't be shown again:
+    <code id="new-key-value">{{ new_key }}</code>
+    <button type="button" data-copy="new-key-value">Copy key</button>
+</div>
+{% endif %}
+
+{% for key_id, label, prefix, created_at, last_used_at in keys %}
+<div class="row">
+    <span class="name">{{ label }}</span>
+    <span class="badge">{{ prefix }}…</span>
+    <form method="post" action="{{ url_for('core.revoke_key', key_id=key_id) }}"
+        onsubmit="return confirm('Revoke this key? Scanners using it stop working immediately.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn-small" type="submit">Revoke</button>
+    </form>
+    <div class="meta">created {{ created_at[:16] }} · last used {{ last_used_at[:16] if last_used_at else 'never' }}</div>
+</div>
+{% else %}
+<div class="hint">No scanner keys yet.</div>
+{% endfor %}
+
+<form method="post" action="{{ url_for('core.create_key') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field-group">
+        <label class="field-label" for="key_label">Label</label>
+        <input id="key_label" class="field-input" type="text" name="label" maxlength="60" placeholder="e.g. Basement scanner">
+    </div>
+    <button type="submit" class="btn-login">&#9654; Create Scanner Key</button>
+</form>
+
+<div class="gateway-nav">
+    <a href="{{ url_for('inventory.index') }}">&#8592; Back to HUD</a> &nbsp;//&nbsp;
+    <a href="{{ url_for('core.admin_users') }}">Users</a> &nbsp;//&nbsp;
+    <a href="{{ url_for('core.logout') }}">Logout</a>
+</div>
+
+<script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+    document.querySelectorAll('[data-copy]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var text = document.getElementById(btn.dataset.copy).textContent.trim();
+            navigator.clipboard.writeText(text).then(function () { btn.textContent = 'Copied'; });
+        });
+    });
+    var qrEl = document.getElementById('qr');
+    if (qrEl && qrEl.dataset.qr && window.qrcode) {
+        var qr = qrcode(0, 'M');
+        qr.addData(qrEl.dataset.qr);
+        qr.make();
+        qrEl.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0 });
+    }
+</script>
+{% endblock %}

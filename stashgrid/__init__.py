@@ -9,7 +9,9 @@ Layout:
     stashgrid/library/       books (deferred, SG-08)
     stashgrid/services/      shared services (barcode lookups)
 """
+import logging
 import os
+import re
 from datetime import timedelta
 
 from flask import Flask
@@ -18,9 +20,31 @@ from stashgrid import config
 from stashgrid.config import logger
 from stashgrid.extensions import csrf
 
+# Share-link and emailed-link tokens travel in the URL path. Mask them in the
+# request log so the secrets don't end up in journald/log files (SG-35).
+_SECRET_PATH = re.compile(
+    r"(/shop/|/api/public/shopping-lists/(?:toggle/|create/|add/)?|/verify/|/reset/|/invite/)[A-Za-z0-9_\-]{16,}"
+)
+
+
+class _MaskSecretPaths(logging.Filter):
+    def filter(self, record):
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        masked = _SECRET_PATH.sub(r"\1<redacted>", message)
+        if masked != message:
+            record.msg, record.args = masked, ()
+        return True
+
 
 def create_app():
     """Build and configure the Flask app. Same behaviour as the old app.py."""
+    werkzeug_log = logging.getLogger("werkzeug")
+    if not any(isinstance(f, _MaskSecretPaths) for f in werkzeug_log.filters):
+        werkzeug_log.addFilter(_MaskSecretPaths())
+
     app = Flask(
         __name__,
         template_folder=os.path.join(config.BASE_DIR, "templates"),
@@ -50,11 +74,6 @@ def create_app():
 
     from stashgrid.db import init_db
     init_db()
-
-    # Log the public shopping URL so you always know where to send the link
-    logger.info(
-        "Public shopping list URL: https://stashgrid.devinerickson.com/shop/%s",
-        config.SHOPPING_TOKEN
-    )
-    print(f"[StashGrid] Public shopping list URL: https://stashgrid.devinerickson.com/shop/{config.SHOPPING_TOKEN}")
+    # Shopping links are per household now (SG-35) and are no longer printed
+    # to the log; owners/admins create and copy them on the Settings page.
     return app

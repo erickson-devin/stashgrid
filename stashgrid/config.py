@@ -1,7 +1,6 @@
 """Process-wide configuration, paths and logging (moved from app.py, SG-06)."""
 import logging
 import os
-import secrets
 from logging.handlers import RotatingFileHandler
 
 # Repo root: templates/, static/, shopping_token.txt and scanner_state.json
@@ -28,25 +27,25 @@ DB = os.environ.get("STASHGRID_DB_PATH") or os.path.join(BASE_DIR, "inventory.db
 # Automatic copies taken before schema migrations run (see migrations.py).
 BACKUP_DIR = os.environ.get("STASHGRID_BACKUP_DIR") or os.path.join(BASE_DIR, "backups")
 
-# Shared key that lets a headless client (the hardware scanner, see SG-10) call
-# /api/scan without a browser session. Sent as the X-StashGrid-Key header.
-# Key auth is disabled when this is unset.
-SCANNER_API_KEY = os.environ.get("STASHGRID_SCANNER_KEY", "")
-# ── Public Shopping List Token ────────────────────────────────────────────────
-# A 32-char hex token stored on disk. The public shopping URL is:
-#   https://stashgrid.devinerickson.com/shop/<token>
-# Rotate by deleting shopping_token.txt and restarting.
+# ── Legacy single-household secrets (imported once by migration 5, SG-35) ────
+# Before SG-35 there was one global shopping link (shopping_token.txt) and one
+# scanner key (STASHGRID_SCANNER_KEY). They are imported into the default
+# household the first time migration 5 runs; after that, share links and
+# scanner keys are per household and managed on the Settings page. Nothing
+# reads these at request time any more.
 SHOPPING_TOKEN_FILE = os.path.join(BASE_DIR, "shopping_token.txt")
 
-def _load_or_create_token():
-    if os.path.exists(SHOPPING_TOKEN_FILE):
-        return open(SHOPPING_TOKEN_FILE).read().strip()
-    token = secrets.token_hex(16)  # 32-char hex string
-    with open(SHOPPING_TOKEN_FILE, "w") as f:
-        f.write(token)
-    return token
 
-SHOPPING_TOKEN = _load_or_create_token()
+def _read_legacy_token():
+    try:
+        with open(SHOPPING_TOKEN_FILE) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+LEGACY_SHOPPING_TOKEN = _read_legacy_token()
+LEGACY_SCANNER_KEY = os.environ.get("STASHGRID_SCANNER_KEY", "")
 
 SYSTEM_USER_ID = 1  # Reserved ID for hardware scanner audit entries
 

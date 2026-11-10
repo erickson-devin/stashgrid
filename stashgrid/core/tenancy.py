@@ -11,8 +11,8 @@ missed check fails loudly instead of leaking across households.
 """
 from flask import abort, g
 
-# Single-household features that become per-household in SG-35: the public
-# shopping link and the scanner API key both act on the default household.
+# The household that existing data (and the legacy shopping link / scanner key)
+# was moved into by migrations 3 and 5.
 DEFAULT_HOUSEHOLD_ID = 1
 
 ROLES = ("member", "admin", "owner")
