@@ -1,5 +1,26 @@
 __pycache__/
 *.pyc
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+backups/
+# Runtime secrets / state — never commit (SG-01)
+shopping_token.txt
+scanner_state.json
+static/uploads/
+.cloudflared/
+*.pem
+.env
+venv/
+logs/
+*.log
+static/photos/
+
+# Local / experimental files — not for the public repo
+local/
+__pycache__/
+*.pyc
 inventory.db
 inventory.db-wal
 inventory.db-shm
