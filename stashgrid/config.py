@@ -72,6 +72,10 @@ def _env_flag(name, default=False):
 # self-hosted Pi isn't open to registration; the hosted service turns it on.
 SIGNUP_ENABLED = _env_flag("STASHGRID_SIGNUP_ENABLED", False)
 
+# app.py opens a kiosk browser on an attached X display. Off (0) when the
+# stashgrid-display service does it instead, so there aren't two (SG-24).
+KIOSK = _env_flag("STASHGRID_KIOSK", True)
+
 # Base URL used in emailed links, e.g. https://app.example.com. Falls back to
 # the URL of the request that triggered the email.
 PUBLIC_BASE_URL = (os.environ.get("STASHGRID_PUBLIC_BASE_URL") or "").rstrip("/")

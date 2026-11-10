@@ -1,6 +1,6 @@
 [Unit]
 Description=StashGrid Inventory Server
-After=network.target
+After=network-online.target
 Wants=network-online.target
 
 [Service]
@@ -11,13 +11,10 @@ ExecStart=__VENV_DIR__/bin/python __INSTALL_DIR__/app.py
 Restart=on-failure
 RestartSec=5
 
-# Pass log directory to the app
+# Settings, including STASHGRID_SECRET_KEY, live in a root-only file that
+# setup.sh creates (SG-24). Edit it, then: sudo systemctl restart stashgrid
 Environment=STASHGRID_LOG_DIR=/var/log/stashgrid
-
-# Secret key for Flask session cookie signing — MUST be unique per deployment.
-# Generate a strong value with: python3 -c "import secrets; print(secrets.token_hex(32))"
-# Then replace __SECRET_KEY__ below with the output before installing.
-Environment=STASHGRID_SECRET_KEY=__SECRET_KEY__
+EnvironmentFile=__ENV_FILE__
 
 # Harden the service slightly
 PrivateTmp=true

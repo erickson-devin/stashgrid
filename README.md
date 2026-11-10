@@ -68,12 +68,16 @@ Tested on Raspberry Pi OS (Bookworm) on a Pi 3 and newer. You need SSH or a keyb
    It will:
    - create `venv/` and install `requirements.txt`;
    - create `/var/log/stashgrid/`;
-   - install the `stashgrid` systemd service with a freshly generated `STASHGRID_SECRET_KEY`;
-   - ask whether to install the USB scanner service;
-   - ask whether to set up the Cloudflare tunnel (only needed for the shopping link outside your home);
-   - offer to start everything.
+   - create the settings file `/etc/stashgrid/stashgrid.env`, with a new secret key (never shown on screen);
+   - install and enable the `stashgrid` service;
+   - ask whether to install the USB scanner service, the full-screen kiosk display, and a Cloudflare tunnel (only needed for the shopping link away from home);
+   - start everything and check the app answers.
 
-   > **Known issues (SG-24):** `setup.sh` prints the generated secret key to the terminal and makes a new one each time it runs, which logs everyone out. Its tunnel step still looks for `shopping_token.txt`, which the app no longer creates; ignore that message and make a link in Settings instead.
+   It's safe to run again later, for example to add the scanner: your settings, secret key and data are kept. To skip the questions, pass options instead:
+   ```bash
+   bash setup.sh -y --scanner --display --tunnel stash.example.com
+   ```
+   (`bash setup.sh --help` lists them all.)
 4. **Open the app** at `https://<pi-ip>:5000`. Your browser will warn about the self-signed certificate: choose **Advanced → Proceed** once per device. HTTPS is needed for the phone camera to work.
 
 ### Service commands
@@ -87,7 +91,7 @@ tail -f /var/log/stashgrid/stashgrid.log   # app log
 
 ### Kiosk display
 
-If a screen is attached and Chromium or Firefox is installed, `app.py` opens StashGrid full-screen on it at startup. To skip that, leave the Pi without a desktop session.
+For a screen attached to the Pi, answer yes to the display question (or run `bash setup.sh --display`). It installs the `stashgrid-display` service, which runs Chromium full-screen on the console (cage, no desktop needed), and turns off the app's own browser launcher (`STASHGRID_KIOSK=0`) so there's only one.
 
 ## First login
 
@@ -99,25 +103,24 @@ If a screen is attached and Chromium or Firefox is installed, `app.py` opens Sta
 
 ## Configuration
 
-Settings are environment variables on the systemd service. Change them with:
+Settings live in `/etc/stashgrid/stashgrid.env` (created by `setup.sh`, readable only by root because it holds the secret key). Edit it with:
 
 ```bash
-sudo systemctl edit stashgrid
+sudo nano /etc/stashgrid/stashgrid.env
 ```
 
-Add lines under `[Service]`, for example:
+One `NAME=value` per line, for example:
 
 ```ini
-[Service]
-Environment=STASHGRID_PUBLIC_BASE_URL=https://stashgrid.example.com
-Environment=STASHGRID_MAIL_BACKEND=smtp
+STASHGRID_PUBLIC_BASE_URL=https://stashgrid.example.com
+STASHGRID_MAIL_BACKEND=smtp
 ```
 
-Then `sudo systemctl restart stashgrid`. (A single config file is planned in SG-21.)
+Then `sudo systemctl restart stashgrid`.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `STASHGRID_SECRET_KEY` | dev value | Signs login cookies. `setup.sh` generates one. Changing it logs everyone out. |
+| `STASHGRID_SECRET_KEY` | dev value | Signs login cookies. `setup.sh` generates one (and keeps an existing one when re-run). Changing it logs everyone out. |
 | `STASHGRID_DB_PATH` | `<repo>/inventory.db` | Database file. **`scanner.py` always uses `inventory.db` in its working folder**, so leave this alone if you use the USB scanner. |
 | `STASHGRID_BACKUP_DIR` | `<repo>/backups` | Where pre-migration backups go. |
 | `STASHGRID_LOG_DIR` | `/var/log/stashgrid` | App log folder. |
@@ -127,6 +130,8 @@ Then `sudo systemctl restart stashgrid`. (A single config file is planned in SG-
 | `STASHGRID_MAIL_FROM` | `StashGrid <no-reply@localhost>` | Sender address. |
 | `STASHGRID_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD` | — / 587 | Your mail provider (Gmail app password, Postmark, SES, Resend…). |
 | `STASHGRID_SMTP_SECURITY` | `starttls` | `starttls`, `ssl` or `none`. |
+| `STASHGRID_KIOSK` | `1` | `0` stops the app opening its own full-screen browser. `setup.sh --display` sets it, because the display service does that job. |
+| `STASHGRID_DATABASE_URL` | — | `postgresql://…` to use Postgres instead of the SQLite file (the hosted service; needs `requirements-postgres.txt`). Not for a Pi with a USB scanner. |
 | `STASHGRID_SCANNER_KEY` | — | **Legacy.** Imported once as a scanner key when upgrading from older versions. Use Settings → Scanner keys instead. |
 
 > With the `console` mail backend, password-reset and invite links are written to the app log. That's fine on your own Pi, but don't use it where other people can read the logs.
@@ -254,16 +259,17 @@ If the backup is from an older version, its migrations run again at startup.
 ## Updating
 
 ```bash
-cd ~/stashgrid
-git pull
-source venv/bin/activate
-pip install -r requirements.txt
-sudo systemctl restart stashgrid stashgrid-scanner
+bash ~/stashgrid/update.sh
 ```
 
-Database migrations run on restart, after an automatic backup. Check `journalctl -u stashgrid -n 50` for `DB: applying migration` lines.
+It works from wherever StashGrid is installed and:
+1. backs up the database to `backups/inventory-<date>-pre-update.db` (keeps the newest 10);
+2. pulls the latest code, refusing if you've edited files in the folder;
+3. installs any new Python packages;
+4. restarts every installed StashGrid service, including the kiosk display, so it doesn't keep showing the old page;
+5. checks the app answers.
 
-> `update.sh` does the same, but has `/home/admin/stashgrid` hard-coded (SG-24). Use the commands above if your folder is different.
+Database migrations run on restart, after their own backup. Check `journalctl -u stashgrid -n 50` for `DB: applying migration` lines.
 
 ## Development and tests
 
@@ -333,8 +339,9 @@ stashgrid/
 ├── static/                   CSS/JS; photos/ holds uploaded item photos
 ├── tests/                    pytest suite
 ├── setup.sh / update.sh      Pi install and update scripts
-├── stashgrid.service         systemd unit template (filled in by setup.sh)
-├── stashgrid-scanner.service
+├── stashgrid.service         systemd unit templates, filled in by setup.sh:
+├── stashgrid-scanner.service   the USB scanner
+├── stashgrid-display.service   the full-screen kiosk
 └── cloudflared_config.yml    tunnel template (shopping pages only)
 ```
 

@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import time
 
+from stashgrid import config
 from stashgrid.config import logger
 
 
@@ -69,6 +70,9 @@ def _launch_kiosk_display(startup_delay=3):
     Completely non-fatal: logs a message and returns if no display or browser
     is available.
     """
+    if not config.KIOSK:
+        logger.info("Kiosk: disabled (STASHGRID_KIOSK=0)")
+        return
     time.sleep(startup_delay)
 
     display = _detect_display()
@@ -96,7 +100,7 @@ def _launch_kiosk_display(startup_delay=3):
     env["DISPLAY"] = display
 
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             browser_cmd + [url],
             env=env,
             stdout=subprocess.DEVNULL,
@@ -108,3 +112,8 @@ def _launch_kiosk_display(startup_delay=3):
         )
     except Exception as exc:
         logger.error("Kiosk: failed to launch browser — %s", exc)
+        return
+    # Wait in this (daemon) thread so an exited browser is reaped instead of
+    # lingering as a zombie under the app process (SG-24).
+    code = proc.wait()
+    logger.info("Kiosk: browser exited with code %s", code)
