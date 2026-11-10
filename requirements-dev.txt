@@ -1,0 +1,4 @@
+# Development / test dependencies (SG-25). Install with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+# Run the tests from the repo root with:  pytest
+pytest>=8.0
