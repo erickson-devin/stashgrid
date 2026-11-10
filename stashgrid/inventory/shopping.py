@@ -16,8 +16,9 @@ from stashgrid.core.tenancy import current_household_id, require_list
 from stashgrid.inventory import bp
 
 
-def _auto_add_to_shopping_list(conn, household_id, barcode, name, preferred_store="Costco"):
+def _auto_add_to_shopping_list(conn, household_id, barcode, name, preferred_store="Costco", inventory_id=None):
     """Auto-insert a low-stock item into the best-matching shopping list of the household.
+    inventory_id is the row that ran low; restock puts the stock back there (SG-14).
     Resolution order:
       1. A list whose store_name exactly matches preferred_store (case-insensitive)
       2. The list flagged is_default = 1
@@ -57,11 +58,18 @@ def _auto_add_to_shopping_list(conn, household_id, barcode, name, preferred_stor
         (household_id, list_id, barcode)
     ).fetchone()
 
-    if not existing:
+    if existing:
+        if inventory_id is not None:
+            conn.execute(
+                "UPDATE shopping_list_items SET inventory_id = ? WHERE id = ? AND household_id = ? "
+                "AND inventory_id IS NULL",
+                (inventory_id, existing[0], household_id),
+            )
+    else:
         conn.execute(
-            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed, household_id) "
-            "VALUES (?, ?, ?, 1, 0, ?)",
-            (list_id, barcode, name, household_id)
+            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed, household_id, inventory_id) "
+            "VALUES (?, ?, ?, 1, 0, ?, ?)",
+            (list_id, barcode, name, household_id, inventory_id)
         )
         logger.info(
             "Auto-added '%s' (%s) to shopping list %d (store: %s, low stock triggered)",
@@ -180,6 +188,43 @@ def toggle_shopping_item(item_id):
     return jsonify({"ok": True, "is_completed": new_state})
 
 
+def _restock_target(conn, household_id, barcode, inventory_id):
+    """Which inventory row a bought item goes back to (SG-13/14), as
+    (row id, reactivate) or None if it has no known location.
+
+    1. The row that ran low (remembered when the item was auto-added), even if
+       it was soft-deleted when its last unit was removed.
+    2. Otherwise the most recently updated row for the barcode that still has
+       a room and shelf, active or not.
+    A removed row is only revived if nothing active has been scanned onto the
+    same shelf since; otherwise the stock goes to that active row.
+    """
+    cols = "SELECT id, barcode, room_id, shelf_id, is_active FROM inventory WHERE household_id = ? "
+    row = None
+    if inventory_id is not None:
+        row = conn.execute(cols + "AND id = ?", (household_id, inventory_id)).fetchone()
+    if row is None or row[2] is None or row[3] is None:
+        if not barcode:
+            return None
+        row = conn.execute(
+            cols + "AND barcode = ? AND room_id IS NOT NULL AND shelf_id IS NOT NULL "
+            "ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (household_id, barcode),
+        ).fetchone()
+    if row is None:
+        return None
+    row_id, row_barcode, room_id, shelf_id, is_active = row
+    if not is_active:
+        active = conn.execute(
+            "SELECT id FROM inventory WHERE household_id = ? AND barcode = ? AND room_id = ? AND shelf_id = ? "
+            "AND is_active = 1 ORDER BY id DESC LIMIT 1",
+            (household_id, row_barcode, room_id, shelf_id),
+        ).fetchone()
+        if active:
+            return active[0], False
+    return row_id, not is_active
+
+
 @bp.route("/api/shopping-lists/commit", methods=["POST"])
 def commit_restock():
     data = request.get_json(silent=True) or {}
@@ -193,25 +238,33 @@ def commit_restock():
     with get_db() as conn:
         require_list(conn, list_id)
         completed = conn.execute(
-            "SELECT id, barcode, name, requested_qty FROM shopping_list_items "
+            "SELECT id, barcode, name, requested_qty, inventory_id FROM shopping_list_items "
             "WHERE household_id = ? AND list_id = ? AND is_completed = 1",
             (hid, list_id)
         ).fetchall()
-        for sl_id, barcode, sl_name, qty in completed:
-            inv = conn.execute(
-                "SELECT id FROM inventory WHERE household_id = ? AND barcode = ? AND is_active = 1 LIMIT 1",
-                (hid, barcode)
-            ).fetchone()
-            if inv:
+        for sl_id, barcode, sl_name, qty, inventory_id in completed:
+            target = _restock_target(conn, hid, barcode, inventory_id)
+            if target is None:
+                # No known shelf (e.g. typed in by hand): stays on the list, ticked.
+                unknown.append({"barcode": barcode, "name": sl_name})
+                continue
+            inv_id, reactivate = target
+            if reactivate:
+                conn.execute(
+                    "UPDATE inventory SET quantity = ?, is_active = 1, removed_at = NULL, removed_reason = NULL, "
+                    "updated_at = ? WHERE id = ? AND household_id = ?",
+                    (qty, now, inv_id, hid)
+                )
+            else:
                 conn.execute(
                     "UPDATE inventory SET quantity = quantity + ?, updated_at = ? WHERE id = ? AND household_id = ?",
-                    (qty, now, inv[0], hid)
+                    (qty, now, inv_id, hid)
                 )
-                conn.execute("DELETE FROM shopping_list_items WHERE id = ? AND household_id = ?", (sl_id, hid))
-                restocked.append({"barcode": barcode, "name": sl_name, "qty": qty})
-                logger.info("Restocked %s x%d via shopping list commit", barcode, qty)
-            else:
-                unknown.append({"barcode": barcode, "name": sl_name})
+            conn.execute("DELETE FROM shopping_list_items WHERE id = ? AND household_id = ?", (sl_id, hid))
+            restocked.append({"barcode": barcode, "name": sl_name, "qty": qty, "inventory_id": inv_id,
+                              "reactivated": reactivate})
+            logger.info("Restocked %s x%d into item %d via shopping list commit%s", barcode, qty, inv_id,
+                        " (back in stock)" if reactivate else "")
     return jsonify({"ok": True, "restocked": restocked, "unknown_barcodes": unknown})
 
 

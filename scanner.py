@@ -148,10 +148,10 @@ def remove_scan(item_barcode, room_id, shelf_id):
         if threshold and threshold > 0 and new_qty < threshold:
             _auto_add_shopping_list(
                 conn, household_id, item_barcode, item_name or "[ Unknown Item ]",
-                preferred_store=preferred_store or "Costco"
+                preferred_store=preferred_store or "Costco", inventory_id=item_id
             )
 
-def _auto_add_shopping_list(conn, household_id, barcode, name, preferred_store="Costco"):
+def _auto_add_shopping_list(conn, household_id, barcode, name, preferred_store="Costco", inventory_id=None):
     """Auto-insert a low-stock item into the best-matching shopping list (scanner context).
     Only lists of the item's own household are considered (SG-32).
     Resolution order:
@@ -194,11 +194,20 @@ def _auto_add_shopping_list(conn, household_id, barcode, name, preferred_store="
     ).fetchone()
 
     if not existing:
-        conn.execute(
-            "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) "
-            "VALUES (?, ?, ?, 1, 0)",
-            (list_id, barcode, name)
-        )
+        try:
+            # inventory_id: restock puts the stock back on this shelf (SG-14)
+            conn.execute(
+                "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed, inventory_id) "
+                "VALUES (?, ?, ?, 1, 0, ?)",
+                (list_id, barcode, name, inventory_id)
+            )
+        except sqlite3.OperationalError:
+            # The web app hasn't run migration 6 yet.
+            conn.execute(
+                "INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed) "
+                "VALUES (?, ?, ?, 1, 0)",
+                (list_id, barcode, name)
+            )
         print(f"[\U0001f6d2] Auto-added '{name}' ({barcode}) to '{preferred_store}' list (low stock)")
 
 
