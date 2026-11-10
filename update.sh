@@ -28,6 +28,12 @@ SERVICES=(stashgrid stashgrid-scanner stashgrid-display)
 
 [ -x "$PY" ] || fail "No venv at $INSTALL_DIR/venv. Run setup.sh first."
 
+# Check before touching anything.
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    git status --short
+    fail "You have local changes in $INSTALL_DIR. Commit or discard them, then re-run."
+fi
+
 # Settings the service uses (database location). Root-only file; read without printing.
 DB_PATH="$INSTALL_DIR/inventory.db"
 DATABASE_URL=""
@@ -61,10 +67,6 @@ else
 fi
 
 # ── 2. Pull ──────────────────────────────────────────────────
-if ! git diff --quiet || ! git diff --cached --quiet; then
-    git status --short
-    fail "You have local changes in $INSTALL_DIR. Commit or discard them, then re-run."
-fi
 OLD_REV="$(git rev-parse --short HEAD)"
 git pull --ff-only || fail "git pull failed (diverged history?). Nothing was restarted."
 NEW_REV="$(git rev-parse --short HEAD)"
