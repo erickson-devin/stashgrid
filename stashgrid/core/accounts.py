@@ -10,7 +10,6 @@ Rules that keep these flows safe:
   rate-limited.
 """
 import re
-import sqlite3
 
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
@@ -24,6 +23,7 @@ from stashgrid.core.security import (
     MIN_PASSWORD_LENGTH, Throttle, _clear_login_failures, _password_problem, admin_required,
 )
 from stashgrid.core.tenancy import current_household_id, load_membership
+from stashgrid import db
 from stashgrid.db import get_db
 from stashgrid.extensions import password_hasher as _ph
 from stashgrid.services.mail import send_mail
@@ -190,8 +190,8 @@ def verify_email(token):
         if taken:
             return _render_message("Email In Use", "That email address now belongs to another account.", status=409)
         conn.execute(
-            "UPDATE users SET email = ?, email_verified_at = datetime('now') WHERE id = ?",
-            (t["email"], t["user_id"]),
+            "UPDATE users SET email = ?, email_verified_at = ? WHERE id = ?",
+            (t["email"], db.now(), t["user_id"]),
         )
         log_audit(t["user_id"], "verify_email", "user", t["user_id"], conn=conn)
     flash("EMAIL CONFIRMED")
@@ -260,8 +260,8 @@ def reset_password(token):
                 conn.execute(
                     "UPDATE users SET password_hash = ?, must_change_password = 0, "
                     "session_version = session_version + 1, "
-                    "email_verified_at = COALESCE(email_verified_at, datetime('now')) WHERE id = ?",
-                    (_ph.hash(new), t["user_id"]),
+                    "email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?",
+                    (_ph.hash(new), db.now(), t["user_id"]),
                 )
                 log_audit(t["user_id"], "reset_password_self", "user", t["user_id"], conn=conn)
         if not error:
@@ -312,9 +312,9 @@ def admin_invite_user():
 def admin_revoke_invite(invite_id):
     with get_db() as conn:
         cur = conn.execute(
-            "UPDATE auth_tokens SET used_at = datetime('now') WHERE id = ? AND purpose = 'invite' "
+            "UPDATE auth_tokens SET used_at = ? WHERE id = ? AND purpose = 'invite' "
             "AND household_id = ? AND used_at IS NULL",
-            (invite_id, current_household_id()),
+            (db.now(), invite_id, current_household_id()),
         )
         if cur.rowcount != 1:
             abort(404)
@@ -349,7 +349,8 @@ def accept_invite(token):
                 if not tokens.consume(conn, t["id"]):
                     return _render_message("Invitation Expired", "This invitation was already used.", status=400)
                 conn.execute(
-                    "INSERT OR IGNORE INTO household_members (household_id, user_id, role) VALUES (?, ?, ?)",
+                    "INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, ?) "
+                    "ON CONFLICT DO NOTHING",
                     (t["household_id"], g.user_id, t["role"]),
                 )
                 log_audit(g.user_id, "join_household", "household", t["household_id"], conn=conn,
@@ -374,8 +375,8 @@ def accept_invite(token):
                         username = _new_username(conn, t["email"])
                         uid = conn.execute(
                             "INSERT INTO users (username, password_hash, role, email, email_verified_at, display_name) "
-                            "VALUES (?, ?, 'user', ?, datetime('now'), ?)",
-                            (username, _ph.hash(new), t["email"], name),
+                            "VALUES (?, ?, 'user', ?, ?, ?)",
+                            (username, _ph.hash(new), t["email"], db.now(), name),
                         ).lastrowid
                         conn.execute(
                             "INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, ?)",
@@ -383,7 +384,7 @@ def accept_invite(token):
                         )
                         log_audit(uid, "join_household", "household", t["household_id"], conn=conn,
                                   household_id=t["household_id"])
-                except sqlite3.IntegrityError:
+                except db.IntegrityError:
                     error = "AN ACCOUNT ALREADY USES THIS EMAIL // LOG IN TO ACCEPT"
                 else:
                     _start_session(uid, username, t["household_id"], t["role"], ctx["household_name"])
@@ -434,7 +435,7 @@ def account():
     with get_db() as conn:
         households = conn.execute(
             "SELECT h.id, h.name, m.role FROM household_members m JOIN households h ON h.id = m.household_id "
-            "WHERE m.user_id = ? ORDER BY h.name COLLATE NOCASE", (g.user_id,)
+            "WHERE m.user_id = ? ORDER BY LOWER(h.name)", (g.user_id,)
         ).fetchall()
     return render_template("account.html", error=error, user=user, households=households,
                            current_household=session.get("household_id"))

@@ -11,6 +11,8 @@ tunnel only forwards paths matching /shop/[a-f0-9]{32}.
 import hashlib
 import secrets
 
+from stashgrid import db
+
 KEY_PREFIX = "sgk_"
 
 
@@ -22,11 +24,11 @@ def _sha(value):
 
 def create_share_link(conn, household_id, label, *, list_id=None, expires_days=None, created_by=None):
     token = secrets.token_hex(16)
-    expires_sql = f"datetime('now', '+{int(expires_days)} days')" if expires_days else "NULL"
+    expires_at = db.now_plus(days=int(expires_days)) if expires_days else None
     conn.execute(
-        f"INSERT INTO share_links (household_id, list_id, label, token_hash, created_by, expires_at) "
-        f"VALUES (?, ?, ?, ?, ?, {expires_sql})",
-        (household_id, list_id, label, _sha(token), created_by),
+        "INSERT INTO share_links (household_id, list_id, label, token_hash, created_by, expires_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (household_id, list_id, label, _sha(token), created_by, expires_at),
     )
     return token
 
@@ -38,14 +40,14 @@ def resolve_share_token(conn, token):
         return None
     row = conn.execute(
         "SELECT id, household_id, list_id FROM share_links WHERE token_hash = ? AND revoked_at IS NULL "
-        "AND (expires_at IS NULL OR expires_at > datetime('now'))",
-        (_sha(token),),
+        "AND (expires_at IS NULL OR expires_at > ?)",
+        (_sha(token), db.now()),
     ).fetchone()
     if not row:
         return None
     conn.execute(
-        "UPDATE share_links SET last_used_at = datetime('now') WHERE id = ? "
-        "AND (last_used_at IS NULL OR last_used_at < datetime('now', '-1 minute'))", (row[0],)
+        "UPDATE share_links SET last_used_at = ? WHERE id = ? "
+        "AND (last_used_at IS NULL OR last_used_at < ?)", (db.now(), row[0], db.now_plus(minutes=-1))
     )
     return row[1], row[2]
 
@@ -71,7 +73,7 @@ def resolve_api_key(conn, key):
     if not row:
         return None
     conn.execute(
-        "UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ? "
-        "AND (last_used_at IS NULL OR last_used_at < datetime('now', '-1 minute'))", (row[0],)
+        "UPDATE api_keys SET last_used_at = ? WHERE id = ? "
+        "AND (last_used_at IS NULL OR last_used_at < ?)", (db.now(), row[0], db.now_plus(minutes=-1))
     )
     return row[1]

@@ -1,6 +1,5 @@
 """Request gates, CSRF, password policy, throttling, headers (moved from app.py, SG-06)."""
 import re
-import sqlite3
 import threading
 import time
 from functools import wraps
@@ -8,6 +7,7 @@ from functools import wraps
 from flask import request, render_template, jsonify, redirect, session, url_for, g, flash
 from flask_wtf.csrf import CSRFError
 
+from stashgrid import db
 from stashgrid.db import get_db
 from stashgrid.config import SYSTEM_USER_ID, logger
 from stashgrid.core import bp
@@ -178,7 +178,6 @@ def _same_site_referrer():
     return back[len(host_root) - 1:] if back.startswith(host_root) else "/"
 
 
-@bp.app_errorhandler(sqlite3.IntegrityError)
 def _integrity_error(e):
     """SG-07: foreign keys are enforced, so a request naming a room, shelf or
     list that doesn't exist (stale page, hand-made request) fails here instead
@@ -189,6 +188,10 @@ def _integrity_error(e):
         return jsonify({"error": "INVALID REFERENCE // THAT ROOM, SHELF OR LIST NO LONGER EXISTS"}), 400
     flash("ERROR: THAT ROOM, SHELF OR LIST NO LONGER EXISTS // RELOAD AND TRY AGAIN")
     return redirect(_safe_next(_same_site_referrer()))
+
+
+for _exc in db.IntegrityError:   # SQLite, and Postgres when psycopg is installed (SG-34)
+    bp.app_errorhandler(_exc)(_integrity_error)
 
 
 # ── Password policy & login throttling (SG-03) ───────────────────────────────

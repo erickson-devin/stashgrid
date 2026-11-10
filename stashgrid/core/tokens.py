@@ -6,13 +6,13 @@ hash. A token is valid while unused and unexpired, and is consumed atomically
 """
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
+
+from stashgrid import db
 
 VERIFY_TTL = timedelta(hours=48)
 RESET_TTL = timedelta(hours=1)
 INVITE_TTL = timedelta(days=7)
-
-_FMT = "%Y-%m-%d %H:%M:%S"   # same format as SQLite datetime('now') (UTC)
 
 
 def _hash(raw):
@@ -21,7 +21,7 @@ def _hash(raw):
 
 def create(conn, purpose, ttl, *, user_id=None, email=None, household_id=None, role=None, created_by=None):
     raw = secrets.token_urlsafe(32)
-    expires = (datetime.utcnow() + ttl).strftime(_FMT)
+    expires = db.now_plus(seconds=ttl.total_seconds())
     conn.execute(
         "INSERT INTO auth_tokens (purpose, token_hash, user_id, email, household_id, role, created_by, expires_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -36,8 +36,8 @@ def find(conn, raw, purpose):
         return None
     row = conn.execute(
         "SELECT id, user_id, email, household_id, role, created_by, expires_at FROM auth_tokens "
-        "WHERE token_hash = ? AND purpose = ? AND used_at IS NULL AND expires_at > datetime('now')",
-        (_hash(raw), purpose),
+        "WHERE token_hash = ? AND purpose = ? AND used_at IS NULL AND expires_at > ?",
+        (_hash(raw), purpose, db.now()),
     ).fetchone()
     if not row:
         return None
@@ -48,15 +48,15 @@ def find(conn, raw, purpose):
 def consume(conn, token_id):
     """Mark a token used. False if it was already used (lost a race)."""
     cur = conn.execute(
-        "UPDATE auth_tokens SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL", (token_id,)
+        "UPDATE auth_tokens SET used_at = ? WHERE id = ? AND used_at IS NULL", (db.now(), token_id)
     )
     return cur.rowcount == 1
 
 
 def revoke(conn, purpose, *, user_id=None, email=None, household_id=None):
     """Invalidate outstanding tokens, e.g. older reset links once a new one is sent."""
-    sql = "UPDATE auth_tokens SET used_at = datetime('now') WHERE purpose = ? AND used_at IS NULL"
-    params = [purpose]
+    sql = "UPDATE auth_tokens SET used_at = ? WHERE purpose = ? AND used_at IS NULL"
+    params = [db.now(), purpose]
     if user_id is not None:
         sql += " AND user_id = ?"; params.append(user_id)
     if email is not None:

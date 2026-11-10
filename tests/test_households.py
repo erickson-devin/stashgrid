@@ -6,13 +6,13 @@ import json
 import os
 import pathlib
 import re
-import sqlite3
 
 import pytest
 
 from conftest import ROOT
 
 import stashgrid.inventory.routes as inv_routes
+from stashgrid import db as db_module
 from stashgrid.core.sharing import create_api_key, create_share_link
 from stashgrid.db import get_db
 
@@ -172,7 +172,7 @@ def test_audit_rows_carry_household(db, two):
     ("INSERT INTO inventory (barcode) VALUES ('orphan')", ()),
 ])
 def test_triggers_reject_cross_household_rows(db, two, sql, args):
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(db_module.IntegrityError):
         db.run(sql.format(**two))
 
 

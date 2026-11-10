@@ -53,14 +53,14 @@ def _fetch_items_by_layout(room_id=None, q=""):
     hid = current_household_id()
     with get_db() as conn:
         if q:
-            like = f"%{q}%"
+            like = f"%{q.lower()}%"
             rows = conn.execute("""
                 SELECT i.id, i.barcode, i.name, r.name, s.shelf_number, i.quantity, i.notes, i.updated_at, i.room_id, i.shelf_id, i.photo_path, i.low_stock_threshold, i.preferred_store
                 FROM inventory i
                 LEFT JOIN rooms r ON i.room_id = r.id
                 LEFT JOIN shelves s ON i.shelf_id = s.id
                 WHERE i.household_id = ? AND i.is_active = 1
-                  AND (i.barcode LIKE ? OR i.name LIKE ? OR i.notes LIKE ? OR r.name LIKE ?)
+                  AND (LOWER(i.barcode) LIKE ? OR LOWER(i.name) LIKE ? OR LOWER(i.notes) LIKE ? OR LOWER(r.name) LIKE ?)
                 ORDER BY i.updated_at DESC
             """, (hid, like, like, like, like)).fetchall()
             return rows

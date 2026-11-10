@@ -1,0 +1,4 @@
+# Postgres support for the hosted service (SG-34). Not needed on a Pi.
+# Install with: pip install -r requirements.txt -r requirements-postgres.txt
+# Then set STASHGRID_DATABASE_URL=postgresql://user:password@host:5432/dbname
+psycopg[binary]>=3.1

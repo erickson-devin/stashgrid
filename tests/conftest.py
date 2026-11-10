@@ -10,11 +10,16 @@ tests can run in any order. The Flask app itself is built once per session.
 
 The test client adds a valid CSRF token to every POST/PUT/PATCH/DELETE, the
 way the real pages do. Pass csrf=False to send a request without one.
+
+Backends (SG-34): tests run on SQLite by default. To run them on Postgres,
+point STASHGRID_TEST_DATABASE_URL at an empty database whose name contains
+"test" (its public schema is dropped before every test):
+
+    STASHGRID_TEST_DATABASE_URL=postgresql://stashgrid@localhost/stashgrid_test pytest
 """
 import hashlib
 import os
 import re
-import sqlite3
 import sys
 import tempfile
 
@@ -30,6 +35,12 @@ _SESSION_DIR = tempfile.mkdtemp(prefix="stashgrid-tests-")
 os.environ["STASHGRID_LOG_DIR"] = os.path.join(_SESSION_DIR, "logs")
 os.environ["STASHGRID_DB_PATH"] = os.path.join(_SESSION_DIR, "boot.db")
 os.environ["STASHGRID_BACKUP_DIR"] = os.path.join(_SESSION_DIR, "backups")
+# Never inherit a real database URL: only STASHGRID_TEST_DATABASE_URL counts.
+_TEST_DB_URL = os.environ.get("STASHGRID_TEST_DATABASE_URL", "").strip()
+os.environ["STASHGRID_DATABASE_URL"] = _TEST_DB_URL
+if _TEST_DB_URL and "test" not in _TEST_DB_URL.rsplit("/", 1)[-1]:
+    raise SystemExit("STASHGRID_TEST_DATABASE_URL must name a database containing 'test' "
+                     "(every test drops and recreates its schema)")
 for _name in ("STASHGRID_SCANNER_KEY", "STASHGRID_SIGNUP_ENABLED", "STASHGRID_PUBLIC_BASE_URL",
               "STASHGRID_MAIL_BACKEND", "STASHGRID_SECRET_KEY"):
     os.environ.pop(_name, None)
@@ -51,6 +62,9 @@ import stashgrid.core.security as security                # noqa: E402
 import stashgrid.inventory.routes as inv_routes           # noqa: E402
 from stashgrid.extensions import password_hasher         # noqa: E402
 from stashgrid.services.mail import OUTBOX                # noqa: E402
+
+POSTGRES = db_module.backend() == "postgres"
+sqlite_only = pytest.mark.skipif(POSTGRES, reason="SQLite-specific (file database, PRAGMAs, legacy upgrades)")
 
 PASSWORD = "Strong-Test-Pass-1"
 _PASSWORD_HASH = password_hasher.hash(PASSWORD)           # Argon2 is slow; hash once
@@ -119,8 +133,20 @@ def app(_app, tmp_path, db_path, monkeypatch):
         throttle.reset()
     OUTBOX.clear()
 
+    if POSTGRES:
+        _reset_postgres()
     migrations.run_migrations()
     return _app
+
+
+def _reset_postgres():
+    conn = db_module.connect()
+    try:
+        conn.raw.execute("DROP SCHEMA public CASCADE")
+        conn.raw.execute("CREATE SCHEMA public")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @pytest.fixture
@@ -129,15 +155,17 @@ def client(app):
 
 
 class DB:
-    """Direct SQL access to the test database (bypasses the app)."""
+    """Direct SQL access to the test database (bypasses the app). Takes the
+    app's portable SQL (`?` placeholders) on either backend. Pass a path to
+    open a specific SQLite file instead of the configured database."""
 
-    def __init__(self, path):
+    def __init__(self, path=None):
         self.path = path
 
     def _conn(self):
-        conn = sqlite3.connect(self.path)
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        if self.path:
+            return db_module.Connection(db_module.sqlite_connect(self.path), "sqlite")
+        return db_module.connect()
 
     def all(self, sql, *args):
         conn = self._conn()
@@ -166,8 +194,8 @@ class DB:
 
 
 @pytest.fixture
-def db(app, db_path):
-    return DB(db_path)
+def db(app):
+    return DB()
 
 
 @pytest.fixture
@@ -183,9 +211,9 @@ def make_user(db):
     def make(username, *, role="member", household=1, email=None, must_change=False):
         uid = db.run(
             "INSERT INTO users (username, password_hash, role, must_change_password, email, email_verified_at) "
-            "VALUES (?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END)",
+            "VALUES (?, ?, ?, ?, ?, ?)",
             username, _PASSWORD_HASH, "admin" if role in ("owner", "admin") else "user",
-            int(must_change), email, email,
+            int(must_change), email, db_module.now() if email else None,
         )
         if household is not None:
             db.run("INSERT INTO household_members (household_id, user_id, role) VALUES (?, ?, ?)",
