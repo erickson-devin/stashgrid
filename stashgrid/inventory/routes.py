@@ -444,7 +444,7 @@ def remove_item_quantity(item_id):
         if threshold and threshold > 0 and new_qty < threshold:
             _auto_add_to_shopping_list(
                 conn, hid, barcode, item_name or "[ Unknown Item ]",
-                preferred_store=preferred_store or "Costco"
+                preferred_store=preferred_store or "Costco", inventory_id=item_id,
             )
 
     log_audit(session.get("user_id"), "remove_qty", "item", item_id)

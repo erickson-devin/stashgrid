@@ -166,7 +166,8 @@ def import_household(source, *, household=None, name=None, photos_from=None, pho
                                          {"household_id": new_hid})
             for r in src.execute("SELECT * FROM shopping_list_items WHERE household_id = ? ORDER BY id", (sid,)):
                 _insert(conn, "shopping_list_items", r, ("barcode", "name", "requested_qty", "is_completed"),
-                        {"list_id": lists[r["list_id"]], "household_id": new_hid})
+                        {"list_id": lists[r["list_id"]], "household_id": new_hid,
+                         "inventory_id": items.get(r["inventory_id"]) if r["inventory_id"] is not None else None})
 
             # ── links, keys, history ──
             for table, cols in (("share_links", ("label", "token_hash", "created_at", "expires_at",

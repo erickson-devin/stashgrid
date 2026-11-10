@@ -132,23 +132,95 @@ def test_restock_reports_unknown_barcodes(admin, db, home):
     assert [x["barcode"] for x in r.get_json()["unknown_barcodes"]] == ["NEVER-SEEN"]
 
 
-@pytest.mark.xfail(strict=True, reason="SG-13 (#13): restock ignores items that ran out")
-def test_restock_brings_back_items_that_ran_out(admin, db, home):
+def _tick_all_and_restock(admin, db, home):
+    for (item_id,) in db.all("SELECT id FROM shopping_list_items WHERE is_completed = 0"):
+        admin.post(f"/api/shopping-lists/toggle-complete/{item_id}")
+    r = admin.post("/api/shopping-lists/commit", data={"list_id": home["list"]})
+    assert r.status_code == 200
+    return r.get_json()
+
+
+def test_last_unit_out_then_restock_brings_it_back(admin, db, home):
+    """SG-13 acceptance: scan out the last unit -> auto-listed -> tick -> restock."""
+    item = add_item(db, home, barcode="RICE", qty=1, threshold=1, shelf="shelf2")
+    admin.post(f"/remove/{item}", data={"amount": "1"})
+    assert db.one("SELECT quantity, is_active FROM inventory WHERE id=?", item) == (0, 0)
+    assert db.one("SELECT barcode, inventory_id FROM shopping_list_items") == ("RICE", item)
+    db.run("UPDATE shopping_list_items SET requested_qty = 3")
+    data = _tick_all_and_restock(admin, db, home)
+    assert [x["inventory_id"] for x in data["restocked"]] == [item] and data["unknown_barcodes"] == []
+    assert db.one("SELECT quantity, is_active, removed_at, room_id, shelf_id FROM inventory WHERE id=?", item) == \
+        (3, 1, None, home["room"], home["shelf2"])
+    assert db.value("SELECT COUNT(*) FROM shopping_list_items") == 0
+
+
+def test_restock_goes_back_to_the_shelf_it_was_taken_from(admin, db, home):
+    """SG-14 acceptance: stock on two shelves; the one that ran low gets the restock."""
+    low = add_item(db, home, barcode="OIL", qty=2, threshold=2, shelf="shelf")    # older row
+    full = add_item(db, home, barcode="OIL", qty=9, shelf="shelf2")               # newer row
+    admin.post(f"/remove/{low}", data={"amount": "1"})
+    _tick_all_and_restock(admin, db, home)
+    assert db.value("SELECT quantity FROM inventory WHERE id=?", low) == 2
+    assert db.value("SELECT quantity FROM inventory WHERE id=?", full) == 9
+
+
+def test_hand_added_item_restocks_most_recently_updated_location(admin, db, home):
+    older = add_item(db, home, barcode="SOAP", qty=1, shelf="shelf")
+    newer = add_item(db, home, barcode="SOAP", qty=1, shelf="shelf2")
+    db.run("UPDATE inventory SET updated_at = '2026-01-01 00:00:00' WHERE id = ?", older)
+    db.run("UPDATE inventory SET updated_at = '2026-06-01 00:00:00' WHERE id = ?", newer)
+    _completed(db, home, "SOAP", qty=2)
+    admin.post("/api/shopping-lists/commit", data={"list_id": home["list"]})
+    assert (db.value("SELECT quantity FROM inventory WHERE id=?", older),
+            db.value("SELECT quantity FROM inventory WHERE id=?", newer)) == (1, 3)
+
+
+def test_hand_added_item_that_ran_out_is_brought_back(admin, db, home):
     item = add_item(db, home, barcode="RICE", qty=0, active=0)
     _completed(db, home, "RICE", qty=3)
     admin.post("/api/shopping-lists/commit", data={"list_id": home["list"]})
     assert db.one("SELECT quantity, is_active FROM inventory WHERE id=?", item) == (3, 1)
 
 
-@pytest.mark.xfail(strict=True, reason="SG-14 (#14): restock picks an arbitrary location")
-def test_restock_with_several_locations_is_not_arbitrary(admin, db, home):
-    b = add_item(db, home, barcode="OIL", qty=5, shelf="shelf")    # older row, well stocked
-    a = add_item(db, home, barcode="OIL", qty=1, shelf="shelf2")   # newer row, nearly out
-    _completed(db, home, "OIL", qty=2)
-    admin.post("/api/shopping-lists/commit", data={"list_id": home["list"]})
-    # Expected rule (to be decided in SG-14): the location with the lowest stock.
-    assert db.value("SELECT quantity FROM inventory WHERE id=?", a) == 3
-    assert db.value("SELECT quantity FROM inventory WHERE id=?", b) == 5
+def test_restock_does_not_duplicate_a_rescanned_item(admin, db, home):
+    """Ran out, then scanned back onto the same shelf before restocking: the
+    bought stock joins the active row instead of reviving the old one."""
+    old = add_item(db, home, barcode="TEA", qty=1, threshold=1)
+    admin.post(f"/remove/{old}", data={"amount": "1"})
+    scan(admin, home, "TEA")
+    new = db.value("SELECT id FROM inventory WHERE barcode='TEA' AND is_active=1")
+    _tick_all_and_restock(admin, db, home)
+    assert db.value("SELECT COUNT(*) FROM inventory WHERE barcode='TEA' AND is_active=1") == 1
+    assert db.value("SELECT quantity FROM inventory WHERE id=?", new) == 2
+    assert db.value("SELECT is_active FROM inventory WHERE id=?", old) == 0
+
+
+def test_restock_skips_rows_whose_room_was_deleted(admin, db, home):
+    """A remembered row with no location left falls back to the barcode's other rows."""
+    garage = db.run("INSERT INTO rooms (name, household_id) VALUES ('Garage', 1)")
+    gshelf = db.run("INSERT INTO shelves (room_id, shelf_number) VALUES (?, 1)", garage)
+    gone = db.run("INSERT INTO inventory (barcode, name, room_id, shelf_id, quantity, low_stock_threshold) "
+                  "VALUES ('NAILS', 'Nails', ?, ?, 1, 1)", garage, gshelf)
+    admin.post(f"/remove/{gone}", data={"amount": "1"})
+    admin.post(f"/api/rooms/{garage}/delete")
+    data = _tick_all_and_restock(admin, db, home)
+    assert data["restocked"] == [] and [x["barcode"] for x in data["unknown_barcodes"]] == ["NAILS"]
+    assert db.value("SELECT is_completed FROM shopping_list_items WHERE barcode='NAILS'") == 1, "stays on the list"
+    kept = add_item(db, home, barcode="NAILS", qty=5)
+    _tick_all_and_restock(admin, db, home)
+    assert db.value("SELECT quantity FROM inventory WHERE id=?", kept) == 6
+
+
+def test_restock_never_touches_another_households_row(admin, db, home, make_household):
+    other = make_household("Other")
+    room = db.run("INSERT INTO rooms (name, household_id) VALUES ('Theirs', ?)", other)
+    shelf = db.run("INSERT INTO shelves (room_id, shelf_number) VALUES (?, 1)", room)
+    theirs = db.run("INSERT INTO inventory (barcode, name, room_id, shelf_id, quantity) VALUES ('X', 'x', ?, ?, 1)",
+                    room, shelf)
+    db.run("INSERT INTO shopping_list_items (list_id, barcode, name, requested_qty, is_completed, inventory_id) "
+           "VALUES (?, 'X', 'x', 5, 1, ?)", home["list"], theirs)
+    data = admin.post("/api/shopping-lists/commit", data={"list_id": home["list"]}).get_json()
+    assert data["restocked"] == [] and db.value("SELECT quantity FROM inventory WHERE id=?", theirs) == 1
 
 
 # ── shopping lists ──────────────────────────────────────────────────────────

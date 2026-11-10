@@ -405,12 +405,21 @@ def _m5_links_and_keys(conn):
         logger.info("DB: imported STASHGRID_SCANNER_KEY into household %d", DEFAULT_HOUSEHOLD_ID)
 
 
+def _m6_restock_source(conn):
+    """SG-13/14: a low-stock item added to a shopping list remembers which
+    inventory row (shelf) ran low, so restocking puts it back there, even if
+    the row was soft-deleted when its last unit was removed."""
+    _add_column(conn, "shopping_list_items", "inventory_id",
+                "INTEGER REFERENCES inventory(id) ON DELETE SET NULL")
+
+
 MIGRATIONS = [
     (1, "baseline schema (rooms, shelves, inventory, shopping lists, users, audit log)", _m1_baseline),
     (2, "repair dangling references so foreign keys can be enforced", _m2_repair_references),
     (3, "household accounts: households, members, household_id on every tenant table", _m3_households),
     (4, "email accounts: users.email/display_name, auth_tokens for verify/reset/invite", _m4_email_accounts),
     (5, "per-household share links and scanner API keys", _m5_links_and_keys),
+    (6, "shopping list items remember the inventory row they restock", _m6_restock_source),
 ]
 
 
@@ -619,6 +628,14 @@ def _pg_baseline(conn):
     for table in ("households", "users"):
         raw.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT MAX(id) FROM {table}))")
     logger.info("Auth: seeded __system__ (id=1) and default admin user (must change password)")
+
+
+def _pg_m6_restock_source(conn):
+    conn.raw.execute("ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS inventory_id "
+                     "INTEGER REFERENCES inventory(id) ON DELETE SET NULL")
+
+
+POSTGRES_MIGRATIONS[6] = _pg_m6_restock_source
 
 
 def _run_postgres():
