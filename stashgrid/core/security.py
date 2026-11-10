@@ -1,6 +1,5 @@
 """Request gates, CSRF, password policy, throttling, headers (moved from app.py, SG-06)."""
 import re
-import secrets
 import sqlite3
 import threading
 import time
@@ -10,11 +9,12 @@ from flask import request, render_template, jsonify, redirect, session, url_for,
 from flask_wtf.csrf import CSRFError
 
 from stashgrid.db import get_db
-from stashgrid.config import SCANNER_API_KEY, SYSTEM_USER_ID, logger
+from stashgrid.config import SYSTEM_USER_ID, logger
 from stashgrid.core import bp
 from stashgrid.extensions import csrf
+from stashgrid.core.sharing import resolve_api_key
 from stashgrid.core.tenancy import (
-    DEFAULT_HOUSEHOLD_ID, ROLES as TENANT_ROLES, is_manager, load_membership,
+    ROLES as TENANT_ROLES, is_manager, load_membership,
 )
 
 
@@ -60,11 +60,15 @@ def _unauthenticated_response():
     return redirect(url_for("core.login", next=nxt.rstrip("?")))
 
 
-def _valid_scanner_key():
+def _scanner_key_household():
+    """Household of a live per-household scanner key (SG-35), else None.
+    Keys are looked up by their SHA-256 hash, so the comparison never
+    touches the secret itself."""
     supplied = request.headers.get("X-StashGrid-Key", "")
-    return bool(SCANNER_API_KEY) and secrets.compare_digest(
-        supplied.encode(), SCANNER_API_KEY.encode()
-    )
+    if not supplied:
+        return None
+    with get_db() as conn:
+        return resolve_api_key(conn, supplied)
 
 
 # While a password change is pending, only these endpoints are reachable.
@@ -121,13 +125,13 @@ def _require_login():
                 return jsonify({"error": "PASSWORD CHANGE REQUIRED"}), 403
             return redirect(url_for("core.change_password"))
         return None
-    if endpoint in SCANNER_KEY_ENDPOINTS and _valid_scanner_key():
-        g.user_id = SYSTEM_USER_ID
-        g.auth_via_key = True
-        # One global scanner key for now; it acts on the default household.
-        # Per-household keys: SG-35.
-        g.household_id, g.household_role = DEFAULT_HOUSEHOLD_ID, "member"
-        return None
+    if endpoint in SCANNER_KEY_ENDPOINTS:
+        key_household = _scanner_key_household()
+        if key_household:
+            g.user_id = SYSTEM_USER_ID
+            g.auth_via_key = True
+            g.household_id, g.household_role = key_household, "member"
+            return None
     return _unauthenticated_response()
 
 

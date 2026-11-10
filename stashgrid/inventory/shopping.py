@@ -1,19 +1,18 @@
 """Shopping lists, auto-add on low stock, restock and the public token routes (moved from app.py, SG-06).
 
 SG-32: every query is scoped to a household — the current one for logged-in
-routes, the default household for the public token routes (one global link
-until per-household share links arrive in SG-35).
+routes, and for the public routes the household (and optionally the single
+list) that the share link was created for (SG-35).
 """
 from datetime import datetime
 
 from flask import request, render_template, jsonify, abort
 
 from stashgrid.db import get_db
-from stashgrid.config import SHOPPING_TOKEN, logger
+from stashgrid.config import logger
 from stashgrid.core.security import admin_required
-from stashgrid.core.tenancy import (
-    DEFAULT_HOUSEHOLD_ID, current_household_id, require_list,
-)
+from stashgrid.core.sharing import resolve_share_token
+from stashgrid.core.tenancy import current_household_id, require_list
 from stashgrid.inventory import bp
 
 
@@ -70,18 +69,22 @@ def _auto_add_to_shopping_list(conn, household_id, barcode, name, preferred_stor
         )
 
 
-def _get_shopping_lists_payload(household_id):
-    """Shared data-fetch used by both the local and public shopping list APIs."""
+def _get_shopping_lists_payload(household_id, only_list_id=None):
+    """Shared data-fetch used by both the local and public shopping list APIs.
+    only_list_id limits it to one list (single-list share links)."""
+    scope = " AND id = ?" if only_list_id else ""
+    item_scope = " AND list_id = ?" if only_list_id else ""
+    extra = (only_list_id,) if only_list_id else ()
     with get_db() as conn:
         lists = conn.execute(
-            "SELECT id, name, store_name, is_default FROM shopping_lists WHERE household_id = ? "
-            "ORDER BY is_default DESC, name ASC",
-            (household_id,)
+            "SELECT id, name, store_name, is_default FROM shopping_lists WHERE household_id = ?" + scope +
+            " ORDER BY is_default DESC, name ASC",
+            (household_id,) + extra
         ).fetchall()
         items = conn.execute(
             "SELECT id, list_id, barcode, name, requested_qty, is_completed "
-            "FROM shopping_list_items WHERE household_id = ? ORDER BY is_completed ASC, id ASC",
-            (household_id,)
+            "FROM shopping_list_items WHERE household_id = ?" + item_scope + " ORDER BY is_completed ASC, id ASC",
+            (household_id,) + extra
         ).fetchall()
 
     lists_data = []
@@ -110,12 +113,12 @@ def _create_list(household_id, name, store_name):
         return cursor.lastrowid
 
 
-def _toggle_item(conn, household_id, item_id):
+def _toggle_item(conn, household_id, item_id, only_list_id=None):
     row = conn.execute(
-        "SELECT is_completed FROM shopping_list_items WHERE id = ? AND household_id = ?",
+        "SELECT is_completed, list_id FROM shopping_list_items WHERE id = ? AND household_id = ?",
         (item_id, household_id)
     ).fetchone()
-    if not row:
+    if not row or (only_list_id and row[1] != only_list_id):
         abort(404)
     new_state = 0 if row[0] else 1
     conn.execute(
@@ -264,41 +267,47 @@ def delete_shopping_list(list_id):
 
 # ── Public Shopping List Routes (token-secured, Cloudflare-exposed) ───────────
 
-def _public_household(token):
-    """Validate the share token and return the household it opens.
-    One global token for the default household until SG-35."""
-    if token != SHOPPING_TOKEN:
+def _public_scope(token):
+    """Resolve a share link (SG-35) to (household_id, list_id or None).
+    Unknown, revoked or expired links -> 404."""
+    with get_db() as conn:
+        scope = resolve_share_token(conn, token)
+    if not scope:
         abort(404)
-    return DEFAULT_HOUSEHOLD_ID
+    return scope
 
 
 @bp.route("/shop/<token>")
 def shopping_view(token):
     """Public read-only shopping list view — token-secured, Cloudflare-exposed."""
-    _public_household(token)
+    _public_scope(token)
     return render_template("shopping_view.html", token=token)
 
 
 @bp.route("/api/public/shopping-lists/<token>")
 def public_shopping_lists(token):
     """Public API: return shopping list data. Token-secured."""
-    return jsonify({"lists": _get_shopping_lists_payload(_public_household(token))})
+    hid, only_list = _public_scope(token)
+    return jsonify({"lists": _get_shopping_lists_payload(hid, only_list)})
 
 
 @bp.route("/api/public/shopping-lists/toggle/<token>/<int:item_id>", methods=["POST"])
 def public_toggle_item(token, item_id):
     """Public API: toggle a shopping list item's completion state. Token-secured."""
-    hid = _public_household(token)
+    hid, only_list = _public_scope(token)
     with get_db() as conn:
-        new_state = _toggle_item(conn, hid, item_id)
+        new_state = _toggle_item(conn, hid, item_id, only_list)
     logger.info("Public toggle: item %d → is_completed=%d", item_id, new_state)
     return jsonify({"ok": True, "is_completed": new_state})
 
 
 @bp.route("/api/public/shopping-lists/create/<token>", methods=["POST"])
 def public_create_list(token):
-    """Public API: create a new shopping list. Token-secured."""
-    hid = _public_household(token)
+    """Public API: create a new shopping list. Token-secured.
+    Single-list links can't create lists."""
+    hid, only_list = _public_scope(token)
+    if only_list:
+        abort(404)
     data = request.get_json(silent=True) or {}
     name = (request.form.get("name") or data.get("name", "")).strip()
     store_name = (request.form.get("store_name") or data.get("store_name", "")).strip()
@@ -312,7 +321,7 @@ def public_create_list(token):
 @bp.route("/api/public/shopping-lists/add/<token>", methods=["POST"])
 def public_add_item(token):
     """Public API: add an item to a shopping list. Token-secured."""
-    hid = _public_household(token)
+    hid, only_list = _public_scope(token)
     data = request.get_json(silent=True) or {}
     list_id = int(request.form.get("list_id") or data.get("list_id") or 0)
     name = (request.form.get("name") or data.get("name", "")).strip()
@@ -320,6 +329,8 @@ def public_add_item(token):
     qty = int(request.form.get("qty") or data.get("qty") or 1)
     if not list_id or not name:
         return jsonify({"error": "list_id and name are required"}), 400
+    if only_list and list_id != only_list:
+        return jsonify({"error": "List not found"}), 404
     # Use barcode if provided, otherwise generate a placeholder
     effective_barcode = barcode if barcode else f"MANUAL-{list_id}-{int(datetime.now().timestamp())}"
     with get_db() as conn:

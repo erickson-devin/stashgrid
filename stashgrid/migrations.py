@@ -341,11 +341,70 @@ def _m4_email_accounts(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_tokens_household ON auth_tokens(household_id)")
 
 
+def _m5_links_and_keys(conn):
+    """Per-household share links and scanner API keys (SG-35).
+
+    Both tables store only a SHA-256 hash of the secret. The pre-SG-35 global
+    shopping token (shopping_token.txt) and scanner key (STASHGRID_SCANNER_KEY)
+    are imported once into the default household so existing links and
+    scanners keep working; after that they're managed on the settings page.
+    """
+    import hashlib
+    from stashgrid import config
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS share_links (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+            list_id      INTEGER REFERENCES shopping_lists(id) ON DELETE CASCADE,  -- NULL = all lists
+            label        TEXT NOT NULL,
+            token_hash   TEXT NOT NULL UNIQUE,
+            created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at   TEXT,
+            last_used_at TEXT,
+            revoked_at   TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+            label        TEXT NOT NULL,
+            key_prefix   TEXT NOT NULL,
+            key_hash     TEXT NOT NULL UNIQUE,
+            created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TEXT,
+            revoked_at   TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_share_links_household ON share_links(household_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_household ON api_keys(household_id)")
+
+    sha = lambda s: hashlib.sha256(s.encode()).hexdigest()
+    legacy_token = config.LEGACY_SHOPPING_TOKEN
+    if legacy_token:
+        conn.execute(
+            "INSERT OR IGNORE INTO share_links (household_id, label, token_hash) VALUES (?, ?, ?)",
+            (DEFAULT_HOUSEHOLD_ID, "Original shopping link", sha(legacy_token)),
+        )
+        logger.info("DB: imported the existing shopping link into household %d", DEFAULT_HOUSEHOLD_ID)
+    if config.LEGACY_SCANNER_KEY:
+        conn.execute(
+            "INSERT OR IGNORE INTO api_keys (household_id, label, key_prefix, key_hash) VALUES (?, ?, ?, ?)",
+            (DEFAULT_HOUSEHOLD_ID, "Scanner (from STASHGRID_SCANNER_KEY)",
+             config.LEGACY_SCANNER_KEY[:6], sha(config.LEGACY_SCANNER_KEY)),
+        )
+        logger.info("DB: imported STASHGRID_SCANNER_KEY into household %d", DEFAULT_HOUSEHOLD_ID)
+
+
 MIGRATIONS = [
     (1, "baseline schema (rooms, shelves, inventory, shopping lists, users, audit log)", _m1_baseline),
     (2, "repair dangling references so foreign keys can be enforced", _m2_repair_references),
     (3, "household accounts: households, members, household_id on every tenant table", _m3_households),
     (4, "email accounts: users.email/display_name, auth_tokens for verify/reset/invite", _m4_email_accounts),
+    (5, "per-household share links and scanner API keys", _m5_links_and_keys),
 ]
 
 
