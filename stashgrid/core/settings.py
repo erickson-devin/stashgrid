@@ -13,6 +13,7 @@ from stashgrid.core.audit import log_audit
 from stashgrid.core.security import admin_required
 from stashgrid.core.sharing import create_api_key, create_share_link
 from stashgrid.core.tenancy import current_household_id
+from stashgrid import db
 from stashgrid.db import get_db
 
 EXPIRY_CHOICES = {"never": None, "7": 7, "30": 30, "90": 90}
@@ -28,10 +29,10 @@ def _render(new_link=None, new_key=None, status=200):
     with get_db() as conn:
         links = conn.execute(
             "SELECT s.id, s.label, s.list_id, l.name, s.created_at, s.expires_at, s.last_used_at, "
-            "       CASE WHEN s.expires_at IS NOT NULL AND s.expires_at <= datetime('now') THEN 1 ELSE 0 END "
+            "       CASE WHEN s.expires_at IS NOT NULL AND s.expires_at <= ? THEN 1 ELSE 0 END "
             "FROM share_links s LEFT JOIN shopping_lists l ON l.id = s.list_id "
             "WHERE s.household_id = ? AND s.revoked_at IS NULL ORDER BY s.created_at DESC",
-            (hid,),
+            (db.now(), hid),
         ).fetchall()
         keys = conn.execute(
             "SELECT id, label, key_prefix, created_at, last_used_at FROM api_keys "
@@ -39,7 +40,7 @@ def _render(new_link=None, new_key=None, status=200):
             (hid,),
         ).fetchall()
         lists = conn.execute(
-            "SELECT id, name FROM shopping_lists WHERE household_id = ? ORDER BY name COLLATE NOCASE", (hid,)
+            "SELECT id, name FROM shopping_lists WHERE household_id = ? ORDER BY LOWER(name)", (hid,)
         ).fetchall()
     return render_template(
         "settings.html", links=links, keys=keys, lists=lists, new_link=new_link, new_key=new_key,
@@ -82,8 +83,8 @@ def revoke_link(link_id):
     hid = current_household_id()
     with get_db() as conn:
         cur = conn.execute(
-            "UPDATE share_links SET revoked_at = datetime('now') WHERE id = ? AND household_id = ? "
-            "AND revoked_at IS NULL", (link_id, hid),
+            "UPDATE share_links SET revoked_at = ? WHERE id = ? AND household_id = ? "
+            "AND revoked_at IS NULL", (db.now(), link_id, hid),
         )
         if cur.rowcount != 1:
             abort(404)
@@ -110,8 +111,8 @@ def revoke_key(key_id):
     hid = current_household_id()
     with get_db() as conn:
         cur = conn.execute(
-            "UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ? AND household_id = ? "
-            "AND revoked_at IS NULL", (key_id, hid),
+            "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND household_id = ? "
+            "AND revoked_at IS NULL", (db.now(), key_id, hid),
         )
         if cur.rowcount != 1:
             abort(404)

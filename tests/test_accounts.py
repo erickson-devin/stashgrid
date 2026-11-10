@@ -7,6 +7,7 @@ import pytest
 from conftest import PASSWORD, last_email_link
 
 from stashgrid import config
+from stashgrid import db as db_module
 from stashgrid.services.mail import OUTBOX
 
 
@@ -130,7 +131,7 @@ def test_expired_reset_link(app, ann, db):
     f = app.test_client()
     f.post("/forgot", data={"email": "ann@example.com"})
     link = last_email_link("ann@example.com", "reset")
-    db.run("UPDATE auth_tokens SET expires_at = datetime('now', '-1 minute') WHERE purpose='reset_password'")
+    db.run("UPDATE auth_tokens SET expires_at = ? WHERE purpose='reset_password'", db_module.now_plus(minutes=-1))
     assert f.get(link).status_code == 400
 
 
@@ -167,7 +168,7 @@ def test_invite_new_person(app, ann, db, login):
 
 
 def test_invite_existing_account_and_switch(app, ann, admin_id, db, login):
-    db.run("UPDATE users SET email='admin@example.com', email_verified_at=datetime('now') WHERE id=?", admin_id)
+    db.run("UPDATE users SET email='admin@example.com', email_verified_at=? WHERE id=?", db_module.now(), admin_id)
     a = login("ann@example.com")
     a.post("/admin/users/invite", data={"email": "admin@example.com", "role": "admin"})
     invite = last_email_link("admin@example.com", "invite")

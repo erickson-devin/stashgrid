@@ -24,6 +24,12 @@ SECRET_KEY = os.environ.get("STASHGRID_SECRET_KEY", "stashgrid-dev-secret-change
 # Absolute path (SG-07). Defaults to the repo root, which is where the old
 # relative "inventory.db" resolved because the service runs from there.
 DB = os.environ.get("STASHGRID_DB_PATH") or os.path.join(BASE_DIR, "inventory.db")
+# Which database to use (SG-34). Unset: the SQLite file above (self-hosted Pi).
+# postgresql://user:pass@host/dbname: Postgres (hosted service).
+# sqlite:///path/to/file.db is also accepted and overrides STASHGRID_DB_PATH.
+DATABASE_URL = (os.environ.get("STASHGRID_DATABASE_URL") or "").strip()
+if DATABASE_URL.startswith("sqlite:///"):
+    DB = DATABASE_URL[len("sqlite:///"):]
 # Automatic copies taken before schema migrations run (see migrations.py).
 BACKUP_DIR = os.environ.get("STASHGRID_BACKUP_DIR") or os.path.join(BASE_DIR, "backups")
 

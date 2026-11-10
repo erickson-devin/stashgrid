@@ -19,7 +19,10 @@ def log_audit(user_id, action, target_type, target_id, conn=None, household_id=N
     params = (user_id, action, target_type, target_id, household_id)
     try:
         if conn is not None:
-            conn.execute(sql, params)
+            # Savepoint: on Postgres a failed INSERT would otherwise abort the
+            # caller's whole transaction (SG-34).
+            with conn.savepoint():
+                conn.execute(sql, params)
             return
         with get_db() as own_conn:
             own_conn.execute(sql, params)

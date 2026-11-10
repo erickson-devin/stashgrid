@@ -1,9 +1,9 @@
 """Login, logout, password change and user management routes (moved from app.py, SG-06)."""
-import sqlite3
 
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from flask import request, render_template, redirect, session, url_for, abort, g, flash
 
+from stashgrid import db
 from stashgrid.db import get_db
 from stashgrid.config import logger
 from stashgrid.core import bp
@@ -164,14 +164,14 @@ def admin_users():
         users = conn.execute(
             "SELECT u.id, u.username, m.role, u.must_change_password, u.email, u.display_name "
             "FROM household_members m JOIN users u ON u.id = m.user_id "
-            "WHERE m.household_id = ? AND u.role != 'system' ORDER BY u.username COLLATE NOCASE",
+            "WHERE m.household_id = ? AND u.role != 'system' ORDER BY LOWER(u.username)",
             (current_household_id(),),
         ).fetchall()
         invites = conn.execute(
             "SELECT id, email, role, expires_at FROM auth_tokens "
             "WHERE purpose = 'invite' AND household_id = ? AND used_at IS NULL "
-            "AND expires_at > datetime('now') ORDER BY created_at DESC",
-            (current_household_id(),),
+            "AND expires_at > ? ORDER BY created_at DESC",
+            (current_household_id(), db.now()),
         ).fetchall()
     return render_template("admin_users.html", users=users, roles=ROLES, invites=invites,
                            min_len=MIN_PASSWORD_LENGTH)
@@ -208,7 +208,7 @@ def admin_create_user():
             logger.info("Auth: '%s' added user '%s' (%s) to household %d",
                         session.get("username"), username, role, current_household_id())
             flash(f"USER {username} CREATED // THEY MUST CHANGE THE PASSWORD AT FIRST LOGIN")
-        except sqlite3.IntegrityError:
+        except db.IntegrityError:
             flash("ERROR: USERNAME ALREADY EXISTS")
     return redirect(url_for("core.admin_users"))
 

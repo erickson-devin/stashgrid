@@ -5,10 +5,10 @@ import sqlite3
 
 import pytest
 
-from conftest import DB
+from conftest import DB, POSTGRES, sqlite_only
 
 from stashgrid import migrations
-from stashgrid.db import connect
+from stashgrid.db import sqlite_connect
 
 LATEST = migrations.MIGRATIONS[-1][0]
 ALL_VERSIONS = [m[0] for m in migrations.MIGRATIONS]
@@ -32,21 +32,29 @@ def test_versions_are_sequential():
     assert ALL_VERSIONS == list(range(1, len(ALL_VERSIONS) + 1))
 
 
-def test_fresh_database(db, db_path):
+def test_fresh_database(db):
     assert [r[0] for r in db.all("SELECT version FROM schema_version ORDER BY version")] == ALL_VERSIONS
-    conn = connect(db_path)
+    assert [r[0] for r in db.all("SELECT username FROM users ORDER BY id")] == ["__system__", "admin"]
+    assert db.all("SELECT id, name FROM households") == [(1, "Home")]
+    assert db.value("SELECT m.role FROM household_members m JOIN users u ON u.id=m.user_id WHERE u.username='admin'") == "owner"
+    assert db.value("SELECT must_change_password FROM users WHERE username='admin'") == 1
+    assert backups() == [], "no backup for an empty database"
+    # New rows get ids after the seeded ones.
+    assert db.run("INSERT INTO households (name) VALUES ('Next')") == 2
+
+
+@sqlite_only
+def test_sqlite_connection_settings(app, db_path):
+    conn = sqlite_connect(db_path)
     try:
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
     finally:
         conn.close()
-    assert [r[0] for r in db.all("SELECT username FROM users ORDER BY id")] == ["__system__", "admin"]
-    assert db.all("SELECT id, name FROM households") == [(1, "Home")]
-    assert db.value("SELECT m.role FROM household_members m JOIN users u ON u.id=m.user_id WHERE u.username='admin'") == "owner"
-    assert backups() == [], "no backup for an empty database"
 
 
+@sqlite_only
 def test_rerun_is_a_noop(db_path):
     before = snapshot(db_path)
     assert migrations.run_migrations() == []
@@ -92,6 +100,7 @@ def legacy(app, tmp_path):
     return path
 
 
+@sqlite_only
 def test_legacy_database_upgrade(legacy):
     applied = migrations.run_migrations(legacy)
     assert applied == ALL_VERSIONS
@@ -119,6 +128,7 @@ def test_legacy_database_upgrade(legacy):
     assert "must_change_password" not in {r[1] for r in bk.all("PRAGMA table_info(users)")}
 
 
+@sqlite_only
 def test_shelfgrid_branch_database(app, tmp_path):
     """A DB that ran the ShelfGrid branch: inventory tables gone, books kept."""
     path = str(tmp_path / "shelfgrid.db")
@@ -138,7 +148,7 @@ def test_shelfgrid_branch_database(app, tmp_path):
     assert db.value("SELECT COUNT(*) FROM books") == 1
 
 
-def test_failing_migration_rolls_back(db, db_path, monkeypatch):
+def test_failing_migration_rolls_back(db, monkeypatch):
     def boom(conn):
         conn.execute("CREATE TABLE half_done (x)")
         conn.execute("UPDATE households SET name = 'changed'")
@@ -148,10 +158,13 @@ def test_failing_migration_rolls_back(db, db_path, monkeypatch):
     with pytest.raises(RuntimeError):
         migrations.run_migrations()
     assert db.value("SELECT MAX(version) FROM schema_version") == LATEST
-    assert not db.all("SELECT 1 FROM sqlite_master WHERE name='half_done'")
+    tables = ("SELECT 1 FROM information_schema.tables WHERE table_name='half_done'" if POSTGRES
+              else "SELECT 1 FROM sqlite_master WHERE name='half_done'")
+    assert not db.all(tables)
     assert db.value("SELECT name FROM households WHERE id=1") == "Home"
 
 
+@sqlite_only
 def test_old_backups_are_pruned(app, legacy, monkeypatch):
     os.makedirs(migrations.BACKUP_DIR, exist_ok=True)
     for i in range(migrations.BACKUPS_TO_KEEP + 3):

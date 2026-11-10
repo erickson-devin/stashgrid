@@ -1,6 +1,8 @@
 """Rooms, scanning, removal, low-stock auto-add, restock, escaping."""
 import pytest
 
+from conftest import POSTGRES
+
 from stashgrid.config import SYSTEM_USER_ID
 
 
@@ -33,7 +35,8 @@ def test_delete_room_keeps_items_as_removed(admin, db, home):
     assert [r[0] for r in db.all("SELECT id FROM rooms")] == [other]
     assert db.one("SELECT is_active, room_id, shelf_id FROM inventory WHERE id=?", item) == (0, None, None)
     assert db.value("SELECT COUNT(*) FROM shelves WHERE id=?", other_shelf) == 1
-    assert not db.all("PRAGMA foreign_key_check")
+    if not POSTGRES:
+        assert not db.all("PRAGMA foreign_key_check")
 
 
 # ── scanning ────────────────────────────────────────────────────────────────

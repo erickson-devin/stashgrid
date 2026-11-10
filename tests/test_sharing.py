@@ -5,7 +5,12 @@ import re
 
 import pytest
 
+from conftest import sqlite_only
+
+from datetime import datetime
+
 from stashgrid import config
+from stashgrid import db as db_module
 from stashgrid.core.sharing import create_share_link
 from stashgrid.db import get_db
 
@@ -89,9 +94,10 @@ def test_cannot_scope_link_to_another_households_list(setup):
 def test_link_expiry(db, setup):
     a, p = setup["a"], setup["p"]
     _, _, token = new_link(a, label="Week", expires="7")
-    assert db.value("SELECT CAST(julianday(expires_at) - julianday('now') + 0.5 AS INT) FROM share_links WHERE label='Week'") == 7
+    expires = datetime.strptime(db.value("SELECT expires_at FROM share_links WHERE label='Week'"), db_module.TIMESTAMP_FORMAT)
+    assert round((expires - datetime.strptime(db_module.now(), db_module.TIMESTAMP_FORMAT)).total_seconds() / 86400) == 7
     assert p.get(f"/shop/{token}").status_code == 200
-    db.run("UPDATE share_links SET expires_at = datetime('now', '-1 minute') WHERE label='Week'")
+    db.run("UPDATE share_links SET expires_at = ? WHERE label='Week'", db_module.now_plus(minutes=-1))
     assert p.get(f"/shop/{token}").status_code == 404
     assert p.get(f"/api/public/shopping-lists/{token}").status_code == 404
     assert b"expired" in a.get("/settings").data
@@ -141,6 +147,7 @@ LEGACY_TOKEN = "0123456789abcdef0123456789abcdef"
 LEGACY_KEY = "legacy-scanner-key-xyz"
 
 
+@sqlite_only
 def test_legacy_link_and_key_imported_into_home(app, tmp_path, monkeypatch):
     from stashgrid import migrations
     import stashgrid.db as db_module
